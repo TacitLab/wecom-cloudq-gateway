@@ -1,0 +1,20 @@
+{
+  "name": "wecom-cloudagent-gateway",
+  "version": "2.3.0",
+  "private": true,
+  "description": "CVM gateway for WeCom Bot conversations and polled Tencent Monitor CloudAgent RCA",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "package": "bash scripts/package.sh"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.25.1",
+    "@tencent-ai/cloud-agent-sdk": "0.3.8",
+    "@wecom/aibot-node-sdk": "^1.0.3"
+  }
+}
