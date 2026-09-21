@@ -62,6 +62,7 @@ function publicState(botManager) {
   return {
     bots: registry.listBots(),
     agents: registry.listAgents(),
+    apiKeys: registry.listKeys(),
     connections: botManager.statuses(),
     alertIntegrations: alertStore.listIntegrations(),
     alertJobs: alertStore.listJobs(50),
@@ -101,6 +102,50 @@ function createServer(options = {}) {
       if (url.pathname === "/api/admin/state" && request.method === "GET") {
         send(response, 200, publicState(botManager));
         return;
+      }
+
+      const keyMatch = url.pathname.match(/^\/api\/admin\/keys(?:\/([^/]+))?(?:\/(agents))?$/);
+      if (keyMatch) {
+        const [, id, action] = keyMatch;
+        if (request.method === "POST" && action === "agents" && id) {
+          const key = registry.getKey(id, { secrets: true });
+          if (!key) throw new Error("API Key configuration not found");
+          let remoteAgents;
+          try {
+            const adapter = new CloudAgentAdapter({
+              apiKey: key.apiKey,
+              baseUrl: key.baseUrl,
+              controlTimeoutMs: 30000,
+            });
+            remoteAgents = await adapter.listVisibleAgents();
+          } catch (error) {
+            throw new Error(`Invalid API key or AgentOS unreachable: ${safeError(error)}`);
+          }
+          const items = remoteAgents
+            .filter((agent) => agent.agentId)
+            .map((agent) => {
+              const existing = registry.findAgentByBusinessId(agent.agentId);
+              return { ...agent, existingConfigId: existing?.id || null };
+            });
+          send(response, 200, { items });
+          return;
+        }
+        if (request.method === "POST" && !id) {
+          const saved = registry.saveKey(await readJson(request, config.bodyLimitBytes));
+          send(response, 201, saved);
+          return;
+        }
+        if (request.method === "PUT" && id && !action) {
+          registry.saveKey(await readJson(request, config.bodyLimitBytes), id);
+          botManager.sync();
+          send(response, 200, registry.getKey(id));
+          return;
+        }
+        if (request.method === "DELETE" && id && !action) {
+          registry.deleteKey(id);
+          send(response, 200, { ok: true });
+          return;
+        }
       }
 
       const agentMatch = url.pathname.match(/^\/api\/admin\/agents(?:\/([^/]+))?(?:\/(test))?$/);

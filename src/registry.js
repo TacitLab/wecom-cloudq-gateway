@@ -48,13 +48,36 @@ function parseManifest(value) {
   return parsed;
 }
 
+function keyFromRow(row, { secrets = false } = {}) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    name: row.name,
+    ...(secrets ? { apiKey: storedSecret(row, "api_keys", "api_key_cipher") } : { apiKeyConfigured: true }),
+    baseUrl: row.base_url,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function resolveAgentApiKey(row, secrets) {
+  if (row.api_key_config_id) {
+    if (!secrets) return undefined;
+    const keyRow = db().prepare("SELECT * FROM api_keys WHERE id = ?").get(row.api_key_config_id);
+    return storedSecret(keyRow, "api_keys", "api_key_cipher");
+  }
+  return secrets ? storedSecret(row, "cloud_agents", "api_key_cipher") : undefined;
+}
+
 function agentFromRow(row, { secrets = false } = {}) {
   if (!row) return undefined;
   return {
     id: row.id,
     name: row.name,
     agentId: row.business_agent_id,
-    ...(secrets ? { apiKey: storedSecret(row, "cloud_agents", "api_key_cipher") } : { apiKeyConfigured: true }),
+    ...(secrets ? { apiKey: resolveAgentApiKey(row, true) } : { apiKeyConfigured: true }),
+    apiKeyConfigId: row.api_key_config_id || null,
+    apiKeyName: row.api_key_name || null,
     baseUrl: row.base_url,
     sourceApp: row.source_app,
     runtimeNamePrefix: row.runtime_name_prefix,
@@ -94,11 +117,25 @@ function botFromRow(row, { secrets = false } = {}) {
 }
 
 function listAgents(options) {
-  return db().prepare("SELECT * FROM cloud_agents ORDER BY name, created_at").all().map((row) => agentFromRow(row, options));
+  return db().prepare(`
+    SELECT a.*, k.name AS api_key_name
+    FROM cloud_agents a LEFT JOIN api_keys k ON k.id = a.api_key_config_id
+    ORDER BY a.name, a.created_at
+  `).all().map((row) => agentFromRow(row, options));
 }
 
 function getAgent(id, options) {
-  return agentFromRow(db().prepare("SELECT * FROM cloud_agents WHERE id = ?").get(id), options);
+  return agentFromRow(db().prepare(`
+    SELECT a.*, k.name AS api_key_name
+    FROM cloud_agents a LEFT JOIN api_keys k ON k.id = a.api_key_config_id
+    WHERE a.id = ?
+  `).get(id), options);
+}
+
+function findAgentByBusinessId(businessAgentId) {
+  const value = String(businessAgentId || "").trim();
+  if (!value) return undefined;
+  return agentFromRow(db().prepare("SELECT * FROM cloud_agents WHERE business_agent_id = ?").get(value));
 }
 
 function saveAgent(input, id) {
@@ -106,12 +143,19 @@ function saveAgent(input, id) {
   const existing = id ? database.prepare("SELECT * FROM cloud_agents WHERE id = ?").get(id) : undefined;
   if (id && !existing) throw new Error("CloudAgent configuration not found");
   const now = Date.now();
-  const apiKey = text(input.apiKey, "API Key", { required: !existing, max: 2000 });
+  const apiKeyConfigId = input.apiKeyConfigId ? text(input.apiKeyConfigId, "API Key configuration", { max: 100 }) : "";
+  if (apiKeyConfigId && !database.prepare("SELECT id FROM api_keys WHERE id = ?").get(apiKeyConfigId)) {
+    throw new Error("Selected API Key configuration not found");
+  }
+  const apiKey = text(input.apiKey, "API Key", { required: !existing && !apiKeyConfigId, max: 2000 });
+  const apiKeyStored = apiKey || existing?.api_key_cipher || "";
+  if (!apiKeyConfigId && !apiKeyStored) throw new Error("API Key is required");
   const record = {
     id: existing?.id || crypto.randomUUID(),
     name: text(input.name || input.agentId, "Agent name", { max: 100 }),
     agentId: text(input.agentId, "Agent ID", { max: 200 }),
-    apiKeyStored: apiKey || existing.api_key_cipher,
+    apiKeyConfigId: apiKeyConfigId || null,
+    apiKeyStored,
     baseUrl: text(input.baseUrl || "https://www.codebuddy.cn/v2/agentos", "Base URL", { max: 500 }),
     sourceApp: text(input.sourceApp || "wecom-cloudagent-gateway", "Source App", { max: 100 }),
     runtimeNamePrefix: text(input.runtimeNamePrefix || "wecom", "Runtime name prefix", { max: 40 }),
@@ -123,12 +167,12 @@ function saveAgent(input, id) {
     logLevel: ["off", "error", "warn", "info", "debug"].includes(input.logLevel) ? input.logLevel : "warn",
     revision: (existing?.revision || 0) + 1,
   };
-  if (!/^agent_/i.test(record.agentId)) throw new Error("Agent ID must start with agent_");
+  if (!/^agent[-_]/i.test(record.agentId)) throw new Error("Agent ID must start with agent_");
   database.prepare(`
-    INSERT INTO cloud_agents (id,name,business_agent_id,api_key_cipher,base_url,source_app,runtime_name_prefix,manifest_version,manifest_json,control_timeout_ms,prompt_timeout_ms,include_thinking,log_level,revision,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,business_agent_id=excluded.business_agent_id,api_key_cipher=excluded.api_key_cipher,base_url=excluded.base_url,source_app=excluded.source_app,runtime_name_prefix=excluded.runtime_name_prefix,manifest_version=excluded.manifest_version,manifest_json=excluded.manifest_json,control_timeout_ms=excluded.control_timeout_ms,prompt_timeout_ms=excluded.prompt_timeout_ms,include_thinking=excluded.include_thinking,log_level=excluded.log_level,revision=excluded.revision,updated_at=excluded.updated_at
-  `).run(record.id, record.name, record.agentId, record.apiKeyStored, record.baseUrl, record.sourceApp, record.runtimeNamePrefix, record.manifestVersion, record.manifestJson, record.controlTimeoutMs, record.promptTimeoutMs, record.includeThinking, record.logLevel, record.revision, existing?.created_at || now, now);
+    INSERT INTO cloud_agents (id,name,business_agent_id,api_key_cipher,api_key_config_id,base_url,source_app,runtime_name_prefix,manifest_version,manifest_json,control_timeout_ms,prompt_timeout_ms,include_thinking,log_level,revision,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,business_agent_id=excluded.business_agent_id,api_key_cipher=excluded.api_key_cipher,api_key_config_id=excluded.api_key_config_id,base_url=excluded.base_url,source_app=excluded.source_app,runtime_name_prefix=excluded.runtime_name_prefix,manifest_version=excluded.manifest_version,manifest_json=excluded.manifest_json,control_timeout_ms=excluded.control_timeout_ms,prompt_timeout_ms=excluded.prompt_timeout_ms,include_thinking=excluded.include_thinking,log_level=excluded.log_level,revision=excluded.revision,updated_at=excluded.updated_at
+  `).run(record.id, record.name, record.agentId, record.apiKeyStored, record.apiKeyConfigId, record.baseUrl, record.sourceApp, record.runtimeNamePrefix, record.manifestVersion, record.manifestJson, record.controlTimeoutMs, record.promptTimeoutMs, record.includeThinking, record.logLevel, record.revision, existing?.created_at || now, now);
   return getAgent(record.id);
 }
 
@@ -136,6 +180,46 @@ function deleteAgent(id) {
   const refs = db().prepare("SELECT COUNT(*) AS count FROM wecom_bots WHERE cloud_agent_id = ?").get(id).count;
   if (refs) throw new Error("CloudAgent is still paired with one or more WeCom Bots");
   if (!db().prepare("DELETE FROM cloud_agents WHERE id = ?").run(id).changes) throw new Error("CloudAgent configuration not found");
+}
+
+function listKeys(options) {
+  return db().prepare("SELECT * FROM api_keys ORDER BY name, created_at").all().map((row) => keyFromRow(row, options));
+}
+
+function getKey(id, options) {
+  return keyFromRow(db().prepare("SELECT * FROM api_keys WHERE id = ?").get(id), options);
+}
+
+function saveKey(input, id) {
+  const database = db();
+  const existing = id ? database.prepare("SELECT * FROM api_keys WHERE id = ?").get(id) : undefined;
+  if (id && !existing) throw new Error("API Key configuration not found");
+  const apiKey = text(input.apiKey, "API Key", { required: !existing, max: 2000 });
+  const now = Date.now();
+  const record = {
+    id: existing?.id || crypto.randomUUID(),
+    name: text(input.name, "API Key name", { max: 100 }),
+    apiKeyStored: apiKey || existing.api_key_cipher,
+    baseUrl: text(input.baseUrl || "https://www.codebuddy.cn/v2/agentos", "Base URL", { max: 500 }),
+  };
+  const keyRotated = Boolean(existing) && record.apiKeyStored !== existing.api_key_cipher;
+  database.prepare(`
+    INSERT INTO api_keys (id,name,api_key_cipher,base_url,created_at,updated_at)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,api_key_cipher=excluded.api_key_cipher,base_url=excluded.base_url,updated_at=excluded.updated_at
+  `).run(record.id, record.name, record.apiKeyStored, record.baseUrl, existing?.created_at || now, now);
+  if (keyRotated) {
+    // Rotating the key value must invalidate cached SDK clients and rotate
+    // session namespaces for agents that resolve credentials from this key.
+    database.prepare("UPDATE cloud_agents SET revision = revision + 1, updated_at = ? WHERE api_key_config_id = ?").run(now, record.id);
+  }
+  return getKey(record.id);
+}
+
+function deleteKey(id) {
+  const refs = db().prepare("SELECT COUNT(*) AS count FROM cloud_agents WHERE api_key_config_id = ?").get(id).count;
+  if (refs) throw new Error("API Key is still used by one or more CloudAgents");
+  if (!db().prepare("DELETE FROM api_keys WHERE id = ?").run(id).changes) throw new Error("API Key configuration not found");
 }
 
 function listBots(options) {
@@ -191,11 +275,16 @@ function pairForBot(id) {
 module.exports = {
   deleteAgent,
   deleteBot,
+  deleteKey,
+  findAgentByBusinessId,
   getAgent,
   getBot,
+  getKey,
   listAgents,
   listBots,
+  listKeys,
   pairForBot,
   saveAgent,
   saveBot,
+  saveKey,
 };

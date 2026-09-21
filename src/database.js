@@ -17,6 +17,15 @@ function db() {
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;
 
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      api_key_cipher TEXT NOT NULL,
+      base_url TEXT NOT NULL DEFAULT 'https://www.codebuddy.cn/v2/agentos',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS cloud_agents (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -32,6 +41,7 @@ function db() {
       include_thinking INTEGER NOT NULL DEFAULT 0,
       log_level TEXT NOT NULL DEFAULT 'warn',
       revision INTEGER NOT NULL DEFAULT 1,
+      api_key_config_id TEXT REFERENCES api_keys(id) ON DELETE RESTRICT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -137,6 +147,10 @@ function db() {
     CREATE INDEX IF NOT EXISTS idx_alert_jobs_status
       ON alert_jobs(status, next_attempt_at, created_at);
   `);
+  const agentColumns = database.prepare("PRAGMA table_info(cloud_agents)").all().map((column) => column.name);
+  if (!agentColumns.includes("api_key_config_id")) {
+    database.exec("ALTER TABLE cloud_agents ADD COLUMN api_key_config_id TEXT REFERENCES api_keys(id) ON DELETE RESTRICT");
+  }
   return database;
 }
 

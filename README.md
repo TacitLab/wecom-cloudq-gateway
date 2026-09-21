@@ -141,13 +141,14 @@ npm start
 
 ## 页面配置顺序
 
-1. 在 WorkBuddy 创建并发布企业智能体，取得 `agent_...` ID 和 API Key。
-2. 在管理页“CloudAgent”区域新增配置，通常只填 Agent ID 和 API Key；点击“测试”确认 API Key 能看到该 Agent。
-3. 在企业微信管理端把机器人连接方式改为“使用长连接”，取得 Bot ID 和 Secret。
-4. 在管理页“Bot–Agent 配对”区域新增配对，填写 Bot ID/Secret，并选择唯一绑定的 CloudAgent。
-5. 保存后观察连接状态变为 `authenticated`。
-6. 在企业微信发送“你好”，再追问“我刚才问了什么”，确认复用同一 Session。
-7. 发送 `/new`，确认创建新 Session。
+1. 在 WorkBuddy 创建并发布企业智能体，并在企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）取得企业 API Key。
+2. 在管理页“企业 API Key”区域新增 Key 配置（支持多个）；点击“测试”确认该 Key 能看到企业 Agent。注意：个人 PAT（`pt_` 开头）看不到企业智能体。
+3. 在管理页“CloudAgent”区域新增配置：选择企业 API Key → 点击“拉取 Agent 列表”→ 选择一个 Agent 绑定；点击“测试”确认连通。也可以切换为手动输入 Agent ID 和 API Key。
+4. 在企业微信管理端把机器人连接方式改为“使用长连接”，取得 Bot ID 和 Secret。
+5. 在管理页“Bot–Agent 配对”区域新增配对，填写 Bot ID/Secret，并选择唯一绑定的 CloudAgent。
+6. 保存后观察连接状态变为 `authenticated`。
+7. 在企业微信发送“你好”，再追问“我刚才问了什么”，确认复用同一 Session。
+8. 发送 `/new`，确认创建新 Session。
 
 ## 告警 RCA 配置
 
@@ -205,7 +206,7 @@ src/monitor-client.js     腾讯云 API v3 签名与告警历史查询
 src/alert-poller.js       多配置告警轮询、时间窗口和分页
 src/alert-store.js        告警配置、群绑定、去重任务和历史
 src/alert-worker.js       独立 Agent RCA 与长连接主动推送
-src/registry.js           Bot/Agent 配置、唯一配对与敏感字段隐藏
+src/registry.js           企业 API Key、Bot/Agent 配置、唯一配对与敏感字段隐藏
 src/database.js           SQLite 初始化与 schema
 src/store.js              Session/任务持久化
 src/scheduler.js          按会话串行调度

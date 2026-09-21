@@ -12,7 +12,7 @@ const registry = require("../src/registry");
 const store = require("../src/store");
 
 test.beforeEach(() => {
-  db().exec("DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents;");
+  db().exec("DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents; DELETE FROM api_keys;");
 });
 
 test("stores secrets locally but never exposes them through admin list APIs", () => {
@@ -66,6 +66,52 @@ test("cannot delete an Agent while a Bot is paired to it", () => {
   const agent = registry.saveAgent({ name: "Agent", agentId: "agent_TEST", apiKey: "pt_one" });
   registry.saveBot({ name: "Bot", botId: "bot-1", secret: "secret", cloudAgentId: agent.id });
   assert.throws(() => registry.deleteAgent(agent.id), /still paired/);
+});
+
+test("stores API keys without exposing secrets and resolves agent credentials by reference", () => {
+  const key = registry.saveKey({ name: "Enterprise Key", apiKey: "corp_secret_value" });
+  assert.equal(registry.listKeys()[0].apiKey, undefined);
+  assert.equal(registry.listKeys()[0].apiKeyConfigured, true);
+  assert.equal(registry.getKey(key.id, { secrets: true }).apiKey, "corp_secret_value");
+
+  const agent = registry.saveAgent({ name: "Ref Agent", agentId: "agent_REF", apiKeyConfigId: key.id });
+  assert.equal(agent.apiKeyName, "Enterprise Key");
+  assert.equal(registry.listAgents()[0].apiKey, undefined);
+
+  const bot = registry.saveBot({ name: "Bot", botId: "bot-ref", secret: "secret", cloudAgentId: agent.id });
+  assert.equal(registry.pairForBot(bot.id).agent.apiKey, "corp_secret_value");
+  assert.equal(db().prepare("SELECT api_key_cipher FROM cloud_agents WHERE id = ?").get(agent.id).api_key_cipher, "");
+});
+
+test("requires either an API key reference or an inline key when saving an agent", () => {
+  assert.throws(() => registry.saveAgent({ name: "NoKey", agentId: "agent_NOKEY" }), /API Key is required/);
+  assert.throws(() => registry.saveAgent({ name: "BadRef", agentId: "agent_BADREF", apiKeyConfigId: "missing" }), /not found/);
+});
+
+test("rotating an API key value bumps the revision of referencing agents", () => {
+  const key = registry.saveKey({ name: "Enterprise Key", apiKey: "corp_one" });
+  const agent = registry.saveAgent({ name: "Ref Agent", agentId: "agent_ROT", apiKeyConfigId: key.id });
+  const before = registry.getAgent(agent.id).revision;
+
+  registry.saveKey({ name: "Enterprise Key", apiKey: "" }, key.id);
+  assert.equal(registry.getAgent(agent.id).revision, before);
+  assert.equal(registry.getKey(key.id, { secrets: true }).apiKey, "corp_one");
+
+  registry.saveKey({ name: "Enterprise Key", apiKey: "corp_two" }, key.id);
+  assert.equal(registry.getAgent(agent.id).revision, before + 1);
+  assert.equal(registry.getKey(key.id, { secrets: true }).apiKey, "corp_two");
+});
+
+test("cannot delete an API key while a CloudAgent references it", () => {
+  const key = registry.saveKey({ name: "Enterprise Key", apiKey: "corp_one" });
+  registry.saveAgent({ name: "Ref Agent", agentId: "agent_DEL", apiKeyConfigId: key.id });
+  assert.throws(() => registry.deleteKey(key.id), /still used/);
+});
+
+test("finds agents by business agent ID for pull-list de-duplication", () => {
+  assert.equal(registry.findAgentByBusinessId("agent_MISSING"), undefined);
+  const agent = registry.saveAgent({ name: "Agent", agentId: "agent_FIND", apiKey: "pt_one" });
+  assert.equal(registry.findAgentByBusinessId("agent_FIND").id, agent.id);
 });
 
 test("redacts original message content after a task finishes", () => {

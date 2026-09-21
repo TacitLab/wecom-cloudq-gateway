@@ -120,6 +120,36 @@ class CloudAgentAdapter {
     };
   }
 
+  async listVisibleAgents(signal) {
+    const pageSize = 100;
+    const agents = [];
+    let page = 1;
+
+    while (true) {
+      const result = await this.client.agents.list({
+        page,
+        pageSize,
+        timeoutMs: this.config.controlTimeoutMs,
+        signal,
+      });
+      const items = Array.isArray(result?.items) ? result.items : [];
+      for (const item of items) {
+        agents.push({
+          id: String(item?.id || "").trim(),
+          agentId: String(item?.agentId || item?.id || "").trim(),
+          agentName: String(item?.agentName || item?.name || "").trim(),
+          description: String(item?.description || "").trim(),
+          enabled: item?.enabled !== false,
+        });
+      }
+      const total = Number(result?.total || 0);
+      if (items.length === 0 || page * pageSize >= total) break;
+      page += 1;
+    }
+
+    return agents;
+  }
+
   async resolveAgentInternalId(signal) {
     const configuredId = normalizeId(this.config.agentId, "configured Agent ID");
     const pageSize = 100;

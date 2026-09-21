@@ -129,6 +129,46 @@ test("reports when the configured Agent is not visible to the API key", async ()
   );
 });
 
+test("lists every visible Agent across paginated results", async () => {
+  const client = {
+    agents: {
+      async list(options) {
+        if (options.page === 1) {
+          return {
+            total: 101,
+            page: 1,
+            pageSize: 100,
+            items: Array.from({ length: 100 }, (_, index) => ({
+              id: `internal-${index}`,
+              agentId: `agent-${index}`,
+              agentName: `Agent ${index}`,
+              description: `desc ${index}`,
+              enabled: true,
+            })),
+          };
+        }
+        return {
+          total: 101,
+          page: 2,
+          pageSize: 100,
+          items: [
+            { id: "internal-100", agentId: "agent-100", agentName: "Last Agent", enabled: false },
+          ],
+        };
+      },
+    },
+  };
+
+  const adapter = new CloudAgentAdapter(config(), client);
+  const agents = await adapter.listVisibleAgents();
+  assert.equal(agents.length, 101);
+  assert.equal(agents[0].agentId, "agent-0");
+  assert.equal(agents[0].agentName, "Agent 0");
+  assert.equal(agents[0].enabled, true);
+  assert.equal(agents[100].agentId, "agent-100");
+  assert.equal(agents[100].enabled, false);
+});
+
 test("loads the recorded Session, streams text, and disconnects", async () => {
   const calls = [];
   const session = {
