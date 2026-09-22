@@ -1,3 +1,11 @@
+FROM node:24-alpine AS webbuild
+
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+RUN npm run build
+
 FROM node:24-alpine
 
 WORKDIR /app
@@ -5,6 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY server.js ./
 COPY src ./src
+COPY --from=webbuild /app/web/dist ./web/dist
 
 RUN mkdir -p /data && chown -R node:node /app /data
 USER node

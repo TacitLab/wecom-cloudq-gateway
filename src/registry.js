@@ -48,12 +48,21 @@ function parseManifest(value) {
   return parsed;
 }
 
+function maskSecret(value) {
+  const key = String(value || "");
+  if (!key) return "";
+  if (key.length <= 10) return "****" + key.slice(-2);
+  return key.slice(0, 6) + "****" + key.slice(-4);
+}
+
 function keyFromRow(row, { secrets = false } = {}) {
   if (!row) return undefined;
   return {
     id: row.id,
     name: row.name,
-    ...(secrets ? { apiKey: storedSecret(row, "api_keys", "api_key_cipher") } : { apiKeyConfigured: true }),
+    ...(secrets
+      ? { apiKey: storedSecret(row, "api_keys", "api_key_cipher") }
+      : { apiKeyConfigured: true, apiKeyMasked: maskSecret(storedSecret(row, "api_keys", "api_key_cipher")) }),
     baseUrl: row.base_url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

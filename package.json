@@ -5,6 +5,9 @@
   "description": "CVM gateway for WeCom Bot conversations and polled Tencent Monitor CloudAgent RCA",
   "main": "server.js",
   "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "dev:web": "npm --prefix web run dev",
+    "build:web": "npm --prefix web ci && npm --prefix web run build",
     "start": "node server.js",
     "test": "node --test",
     "package": "bash scripts/package.sh"

@@ -1,9 +1,10 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const http = require("node:http");
+const path = require("node:path");
 const { URL } = require("node:url");
-const { HTML } = require("./src/admin-page");
 const alertPoller = require("./src/alert-poller");
 const alertStore = require("./src/alert-store");
 const alertWorker = require("./src/alert-worker");
@@ -16,6 +17,44 @@ const scheduler = require("./src/scheduler");
 const store = require("./src/store");
 const { serverConfig } = require("./src/config");
 const { safeError } = require("./src/utils");
+
+const WEB_DIST = path.join(__dirname, "web", "dist");
+const WEB_MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".woff2": "font/woff2",
+  ".json": "application/json; charset=utf-8",
+  ".ico": "image/x-icon",
+};
+const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'";
+
+function serveAdmin(response, pathname) {
+  if (!fs.existsSync(path.join(WEB_DIST, "index.html"))) {
+    send(response, 503, { error: "Admin console not built. Run: npm --prefix web run build" });
+    return;
+  }
+  let rel = decodeURIComponent(pathname.slice("/admin".length));
+  if (!rel || rel === "/") rel = "/index.html";
+  let file = path.normalize(path.join(WEB_DIST, rel));
+  if (!file.startsWith(WEB_DIST + path.sep)) {
+    send(response, 403, { error: "Forbidden" });
+    return;
+  }
+  const hashedAsset = rel.startsWith("/assets/");
+  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+    if (hashedAsset) {
+      send(response, 404, { error: "Not found" });
+      return;
+    }
+    file = path.join(WEB_DIST, "index.html");
+  }
+  const headers = { "Content-Security-Policy": ADMIN_CSP };
+  if (hashedAsset) headers["Cache-Control"] = "max-age=31536000, immutable";
+  send(response, 200, fs.readFileSync(file), WEB_MIME[path.extname(file)] || "application/octet-stream", headers);
+}
 
 function secureEqual(actual, expected) {
   const left = Buffer.from(String(actual));
@@ -43,7 +82,7 @@ function send(response, status, body, contentType = "application/json; charset=u
     "Referrer-Policy": "no-referrer",
     ...headers,
   });
-  response.end(typeof body === "string" ? body : JSON.stringify(body));
+  response.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 
 async function readJson(request, limit) {
@@ -85,7 +124,7 @@ function createServer(options = {}) {
         response.end();
         return;
       }
-      if (url.pathname === "/admin" || url.pathname.startsWith("/api/admin/")) {
+      if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/admin/")) {
         if (!authenticated(request, config)) {
           send(response, 401, { error: "Authentication required" }, "application/json; charset=utf-8", {
             "WWW-Authenticate": 'Basic realm="CloudAgent Gateway", charset="UTF-8"',
@@ -93,10 +132,8 @@ function createServer(options = {}) {
           return;
         }
       }
-      if (url.pathname === "/admin" && request.method === "GET") {
-        send(response, 200, HTML, "text/html; charset=utf-8", {
-          "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
-        });
+      if ((url.pathname === "/admin" || url.pathname.startsWith("/admin/")) && request.method === "GET") {
+        serveAdmin(response, url.pathname);
         return;
       }
       if (url.pathname === "/api/admin/state" && request.method === "GET") {
