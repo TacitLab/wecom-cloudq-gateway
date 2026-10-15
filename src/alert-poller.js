@@ -2,13 +2,18 @@
 
 const alertStore = require("./alert-store");
 const alertWorker = require("./alert-worker");
-const { TencentMonitorClient } = require("./monitor-client");
+const { createAlertClient, normalizeClsHistory } = require("./alert-config");
 const { safeError } = require("./utils");
 
 const active = new Set();
 let timer;
 
 function queryFor(integration, page, startTime, endTime) {
+  if (integration.monitorType === "MT_CLS") {
+    const filters = [{ Key: "status", Values: integration.includeRecovery ? ["0", "1"] : ["0"] }];
+    if (integration.policyIds.length) filters.push({ Key: "alertId", Values: integration.policyIds });
+    return { From: startTime * 1000, To: endTime * 1000, Offset: (page - 1) * 100, Limit: 100, Filters: filters };
+  }
   const query = {
     Module: "monitor",
     PageNumber: page,
@@ -17,11 +22,11 @@ function queryFor(integration, page, startTime, endTime) {
     StartTime: startTime,
     EndTime: endTime,
     AlarmStatus: integration.includeRecovery ? ["ALARM", "OK"] : ["ALARM"],
+    MonitorTypes: [integration.monitorType],
   };
   if (integration.policyIds.length) {
     query.PolicyIds = integration.policyIds;
-  } else {
-    query.MonitorTypes = [integration.monitorType];
+  } else if (integration.namespace) {
     query.Namespaces = [{ MonitorType: integration.monitorType, Namespace: integration.namespace }];
   }
   return query;
@@ -36,13 +41,23 @@ async function pollIntegration(integration, options = {}) {
     const endTime = Math.floor(attemptedAt / 1000);
     const cursor = integration.lastSuccessAt || attemptedAt - integration.initialLookbackSeconds * 1000;
     const startTime = Math.max(0, Math.floor(cursor / 1000) - integration.overlapSeconds);
-    const client = options.client || new TencentMonitorClient(integration);
+    const client = options.client || createAlertClient(integration);
     let page = 1;
     let discovered = 0;
     let claimed = 0;
+    const isCls = integration.monitorType === "MT_CLS";
     while (true) {
-      const response = await client.describeAlarmHistories(queryFor(integration, page, startTime, endTime));
-      const histories = Array.isArray(response.Histories) ? response.Histories : [];
+      const query = queryFor(integration, page, startTime, endTime);
+      const response = isCls ? await client.describeAlertRecordHistory(query) : await client.describeAlarmHistories(query);
+      const records = isCls ? response.Records : response.Histories;
+      const items = Array.isArray(records) ? records : [];
+      const histories = isCls
+        ? items.map((record) => normalizeClsHistory(record, integration.region))
+        : items.map((history) => ({
+          ...history,
+          MonitorType: history.MonitorType || integration.monitorType,
+          Region: history.Region || integration.region,
+        }));
       for (const history of histories) {
         discovered += 1;
         if (alertStore.enqueueHistory(integration.id, history).claimed) claimed += 1;

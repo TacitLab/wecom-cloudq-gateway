@@ -9,6 +9,7 @@ const alertPoller = require("./src/alert-poller");
 const { listAlarmPolicies } = require("./src/alert-config");
 const alertStore = require("./src/alert-store");
 const alertWorker = require("./src/alert-worker");
+const { promptReference } = require("./src/alert-prompt");
 const { BotManager } = require("./src/bot-manager");
 const { CloudAgentAdapter } = require("./src/cloudagent");
 const { TencentMonitorClient } = require("./src/monitor-client");
@@ -145,6 +146,11 @@ function createServer(options = {}) {
         return;
       }
 
+      if (url.pathname === "/api/admin/alert-prompt" && request.method === "GET") {
+        send(response, 200, promptReference());
+        return;
+      }
+
       const keyMatch = url.pathname.match(/^\/api\/admin\/keys(?:\/([^/]+))?(?:\/(agents))?$/);
       if (keyMatch) {
         const [, id, action] = keyMatch;
@@ -197,10 +203,13 @@ function createServer(options = {}) {
           if (!credential) throw new Error("Tencent Cloud credential not found");
           let items;
           try {
-            items = await listAlarmPolicies(credential, url.searchParams.get("region"));
+            items = await listAlarmPolicies(credential, url.searchParams.get("region"), {
+              monitorType: url.searchParams.get("monitorType") || undefined,
+            });
           } catch (error) {
-            if (/Region is required|Invalid Tencent Cloud region/.test(safeError(error))) throw error;
-            throw new Error(`Invalid Tencent Cloud credential, missing Monitor read permission, or Monitor API unreachable: ${safeError(error)}`);
+            if (/Region is required|Invalid Tencent Cloud region|Invalid monitor type/.test(safeError(error))) throw error;
+            const service = url.searchParams.get("monitorType") === "MT_CLS" ? "CLS" : "Monitor";
+            throw new Error(`Invalid Tencent Cloud access: 请检查腾讯云凭证、${service} 告警读取权限和网络连接：${safeError(error)}`);
           }
           send(response, 200, { items });
           return;

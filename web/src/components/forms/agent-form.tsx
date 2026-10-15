@@ -96,7 +96,7 @@ export function AgentForm({
       const items = (r.items ?? []).filter((x) => x.enabled)
       if (!items.length) {
         setRemoteAgents([])
-        toast.warning('未拉到任何可用 Agent——请确认使用的是企业 API Key，而非个人 PAT（pt_ 开头）')
+        toast.warning('未拉到任何可用 Agent——请确认使用的是 WorkBuddy API Key，而非个人 PAT（pt_ 开头）')
         return
       }
       setRemoteAgents(items)
@@ -163,7 +163,7 @@ export function AgentForm({
   if (!keys.length && !record) {
     return (
       <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
-        尚未配置企业 API Key，请先在「凭证管理」中添加后再来连接 Cloud Agent。
+        尚未配置 WorkBuddy API Key，请先在「凭证管理」中添加后再来连接 Cloud Agent。
       </div>
     )
   }
@@ -171,7 +171,7 @@ export function AgentForm({
   return (
     <form id={formId} onSubmit={submit} className="flex flex-col gap-4">
       <div className="grid gap-2">
-        <Label>企业 API Key</Label>
+        <Label>WorkBuddy API Key</Label>
         <Select value={apiKeyConfigId} onValueChange={(v) => setApiKeyConfigId(v ?? '')}>
           <SelectTrigger>
             <SelectValue>

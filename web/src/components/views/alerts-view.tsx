@@ -1,3 +1,5 @@
+import { toast } from 'sonner'
+
 import { ConfirmButton } from '@/components/confirm-button'
 import { PanelCard } from '@/components/panel-card'
 import { JobStatusBadge } from '@/components/status-badges'
@@ -13,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { api } from '@/lib/api'
+import { alertSourceName } from '@/lib/alert-sources'
 import { toastTask } from '@/lib/toast-task'
 import type { AdminState } from '@/lib/types'
 
@@ -31,6 +34,15 @@ export function AlertsView({
   onEdit: (id?: string) => void
   onSetupCredential: () => void
 }) {
+  async function copyBindCode(bindCode: string) {
+    try {
+      await navigator.clipboard.writeText(`/bind-alert ${bindCode}`)
+      toast.success('绑定指令已复制，请在目标企业微信群发送')
+    } catch {
+      toast.error('复制失败，请手动复制绑定指令')
+    }
+  }
+
   async function run<T>(task: Promise<T>, loading: string, success: (r: T) => string) {
     try {
       await toastTask(task, loading, success)
@@ -97,7 +109,7 @@ export function AlertsView({
           <div className="border-t py-8 text-center text-sm text-muted-foreground">
             {state.tencentCredentials.length === 0
               ? '告警 RCA 需要腾讯云凭证。请先录入凭证，再创建 RCA 配置。'
-              : '尚未配置告警轮询。请选择凭证、地域和告警策略开始配置。'}
+              : '尚未配置告警轮询。选择告警来源、监控范围和执行 Bot，开始自动诊断。'}
           </div>
         ) : (
           <Table>
@@ -116,8 +128,9 @@ export function AlertsView({
                   <TableCell>
                     <div className="font-medium">{a.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {a.credentialName || '未关联凭证'} · {a.region || '未选择地域'} · {a.policyIds.length ? `${a.policyIds.length} 个策略` : '全部策略'}
+                      {alertSourceName(a.monitorType)} · {a.region || '未选择地域'} · {a.policyIds.length ? `${a.policyIds.length} 个策略` : a.namespace ? `策略类型：${a.namespace}` : '全部策略'}
                     </div>
+                    <div className="text-xs text-muted-foreground">{a.credentialName || '未关联凭证'}</div>
                   </TableCell>
                   <TableCell>
                     {a.botName} → {a.cloudAgentName}
@@ -137,14 +150,15 @@ export function AlertsView({
                           <code className="mt-1 inline-block rounded-sm bg-amber-100 px-1 py-0.5 font-mono text-xs text-amber-800">
                             /bind-alert {a.bindCode}
                           </code>
+                          <Button variant="ghost" size="xs" onClick={() => copyBindCode(a.bindCode)}>复制指令</Button>
                         </div>
                       </>
                     )}
                   </TableCell>
                   <TableCell>
                     {a.enabled ? (
-                      <Badge variant={a.lastError ? 'destructive' : 'default'} className={a.lastError ? undefined : 'bg-green-600'}>
-                        {a.lastError ? '轮询异常' : '已启用'}
+                      <Badge variant={a.lastError ? 'destructive' : a.targetChatId ? 'default' : 'secondary'} className={a.lastError || !a.targetChatId ? undefined : 'bg-green-600'}>
+                        {a.lastError ? '轮询异常' : a.targetChatId ? '已启用' : '等待绑定'}
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="bg-amber-100 text-amber-800">
@@ -152,16 +166,17 @@ export function AlertsView({
                       </Badge>
                     )}
                     <div className="mt-1 text-xs text-muted-foreground">{time(a.lastSuccessAt)}</div>
+                    {a.lastError && <div className="mt-1 max-w-64 break-words text-xs text-destructive">{a.lastError}</div>}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => setEnabled(a.id, !a.enabled)}>
                         {a.enabled ? '暂停' : '启用'}
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => poll(a.id)}>
+                      <Button variant="outline" size="sm" disabled={!a.targetChatId} onClick={() => poll(a.id)}>
                         立即轮询
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => testPush(a.id)}>
+                      <Button variant="outline" size="sm" disabled={!a.targetChatId} onClick={() => testPush(a.id)}>
                         测试推送
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => onEdit(a.id)}>

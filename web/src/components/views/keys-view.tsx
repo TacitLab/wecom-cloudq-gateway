@@ -33,7 +33,7 @@ export function KeysView({
         (r) => `验证通过，该 Key 可见 ${r.items?.length ?? 0} 个 Agent`,
       )
       if (!(r.items?.length ?? 0))
-        toast.warning('未拉到任何 Agent——请确认是企业 API Key，而非个人 PAT（pt_ 开头）')
+        toast.warning('未拉到任何 Agent——请确认是 WorkBuddy API Key，而非个人 PAT（pt_ 开头）')
     } catch {
       // 错误已由 toastTask 提示
     }
@@ -50,7 +50,7 @@ export function KeysView({
 
   return (
     <PanelCard
-      title="企业 API Key"
+      title="WorkBuddy API Key"
       hint="保存 WorkBuddy 企业后台的 API 集成 Key；新增 CloudAgent 时选择 Key 即可自动拉取 Agent 列表。"
       action={<Button onClick={() => onEdit()}>新增 Key</Button>}
     >
@@ -58,7 +58,7 @@ export function KeysView({
         <TableSkeleton rows={3} />
       ) : state.apiKeys.length === 0 ? (
         <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          尚未配置企业 API Key。
+          尚未配置 WorkBuddy API Key。
         </div>
       ) : (
         <Table>
@@ -96,7 +96,7 @@ export function KeysView({
                           删除
                         </Button>
                       }
-                      title="确认删除这个企业 API Key？"
+                      title="确认删除这个 WorkBuddy API Key？"
                       onConfirm={() => removeKey(k.id)}
                     />
                   </div>

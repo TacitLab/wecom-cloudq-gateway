@@ -31,7 +31,7 @@ const NAV_GROUPS: Array<{
   {
     label: '凭证管理',
     items: [
-      { key: 'keys', label: '企业 API Key', icon: KeyRound },
+      { key: 'keys', label: 'WorkBuddy API Key', icon: KeyRound },
       { key: 'tencent-credentials', label: '腾讯云凭证', icon: CloudCog },
     ],
   },
@@ -50,9 +50,14 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" onClick={() => onSwitch('pairings')}>
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-extrabold tracking-tighter">
-                CA
-              </div>
+              <img
+                src={`${import.meta.env.BASE_URL}favicon.svg?v=ca-monogram-1`}
+                alt=""
+                aria-hidden="true"
+                width={32}
+                height={32}
+                className="size-8 shrink-0"
+              />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">消息网关</span>
                 <span className="truncate text-xs text-muted-foreground">CloudAgent Gateway</span>

@@ -67,7 +67,7 @@ export function AgentsView({
         <TableSkeleton />
       ) : state.agents.length === 0 ? (
         <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          尚未配置 CloudAgent。可先在“企业 API Key”添加 Key，新增 Agent 时自动拉取列表。
+          尚未配置 CloudAgent。可先在“WorkBuddy API Key”添加 Key，新增 Agent 时自动拉取列表。
         </div>
       ) : (
         <Table>

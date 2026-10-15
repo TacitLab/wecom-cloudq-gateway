@@ -10,7 +10,7 @@ export const VIEW_META: Record<ViewKey, { title: string; description: string }> 
     description: '维护可被企业微信 Bot 绑定的企业智能体配置',
   },
   keys: {
-    title: '企业 API Key',
+    title: 'WorkBuddy API Key',
     description: '维护用于拉取和调用企业智能体的 API 集成 Key',
   },
   'tencent-credentials': {

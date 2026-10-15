@@ -64,6 +64,8 @@ export interface AlertIntegration {
   cloudAgentName: string
   credentialId?: string | null
   credentialName?: string | null
+  diagnosticCredentialId?: string | null
+  diagnosticCredentialName?: string | null
   region?: string
   monitorType: string
   namespace: string

@@ -23,10 +23,9 @@ export function KeyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>企业 API Key</DialogTitle>
+          <DialogTitle>WorkBuddy API Key</DialogTitle>
           <DialogDescription>
-            在 WorkBuddy 企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）获取企业 API
-            Key；个人 PAT（pt_ 开头）无法看到企业智能体。
+            在 WorkBuddy 企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）获取 WorkBuddy API Key；个人 PAT（pt_ 开头）无法看到企业智能体。
           </DialogDescription>
         </DialogHeader>
         {open && (

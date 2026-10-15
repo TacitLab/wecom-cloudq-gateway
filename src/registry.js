@@ -290,7 +290,7 @@ function saveTencentCredential(input, id) {
 }
 
 function deleteTencentCredential(id) {
-  const refs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE credential_id = ?").get(id).count;
+  const refs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE credential_id = ? OR diagnostic_credential_id = ?").get(id, id).count;
   if (refs) throw new Error("Tencent Cloud credential is still used by one or more alert integrations");
   if (!db().prepare("DELETE FROM tencent_credentials WHERE id = ?").run(id).changes) {
     throw new Error("Tencent Cloud credential not found");

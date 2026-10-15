@@ -11,8 +11,8 @@ import type { AdminState } from '@/lib/types'
 const STEPS = [
   {
     key: 'key' as const,
-    title: '添加企业 API Key',
-    description: '在 WorkBuddy 企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）获取企业 API Key。',
+    title: '添加 WorkBuddy API Key',
+    description: '在 WorkBuddy 企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）获取 WorkBuddy API Key。',
     done: (s: AdminState) => s.apiKeys.length > 0,
   },
   {

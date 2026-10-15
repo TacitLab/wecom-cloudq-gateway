@@ -14,6 +14,7 @@ const { handleMessage } = require("../src/gateway");
 const { buildConversationKey } = require("../src/conversation");
 const taskControl = require("../src/task-control");
 const { TencentMonitorClient } = require("../src/monitor-client");
+const { TencentClsClient } = require("../src/cls-client");
 const { listAlarmPolicies } = require("../src/alert-config");
 const { pollIntegration, queryFor } = require("../src/alert-poller");
 const alertWorker = require("../src/alert-worker");
@@ -160,6 +161,7 @@ test("Tencent Monitor client signs DescribeAlarmHistories and sends expected fil
   assert.equal(captured.options.headers["X-TC-Action"], "DescribeAlarmHistories");
   assert.deepEqual(JSON.parse(captured.options.body).AlarmStatus, ["ALARM"]);
   assert.deepEqual(JSON.parse(captured.options.body).PolicyIds, ["policy-1"]);
+  assert.deepEqual(JSON.parse(captured.options.body).MonitorTypes, ["MT_QCE"]);
   assert.equal(JSON.parse(captured.options.body).Namespaces, undefined);
 });
 
@@ -230,4 +232,144 @@ test("proactive message splitting respects UTF-8 byte limits", () => {
   assert.ok(parts.length > 1);
   assert.ok(parts.every((part) => Buffer.byteLength(part, "utf8") <= 31));
   assert.equal(parts.join(""), "告警".repeat(100));
+});
+
+test("APM policy discovery and history queries stay scoped to MT_TAW", async () => {
+  let captured;
+  const items = await listAlarmPolicies({}, "ap-guangzhou", {
+    monitorType: "MT_TAW",
+    client: { describeAlarmPolicies: async (query) => {
+      captured = query;
+      return { TotalCount: 1, Policies: [{ PolicyId: "apm-policy", MonitorType: "MT_TAW", Namespace: "performance_metric", Enable: 1 }] };
+    } },
+  });
+  assert.deepEqual(captured.MonitorTypes, ["MT_TAW"]);
+  assert.equal(items[0].monitorType, "MT_TAW");
+  const integration = { monitorType: "MT_TAW", namespace: "", policyIds: [], includeRecovery: false };
+  assert.deepEqual(queryFor(integration, 1, 100, 200).MonitorTypes, ["MT_TAW"]);
+  assert.equal(queryFor(integration, 1, 100, 200).Namespaces, undefined);
+  assert.deepEqual(queryFor({ ...integration, policyIds: ["apm-policy"] }, 1, 100, 200).PolicyIds, ["apm-policy"]);
+  assert.deepEqual(queryFor({ ...integration, namespace: "performance_metric" }, 1, 100, 200).Namespaces,
+    [{ MonitorType: "MT_TAW", Namespace: "performance_metric" }]);
+});
+
+test("CLS requests use their own host, signing service, and API version", async () => {
+  const requests = [];
+  const client = new TencentClsClient({ secretId: "sid", secretKey: "skey", region: "ap-guangzhou" }, async (url, options) => {
+    requests.push({ url, options });
+    return { ok: true, json: async () => ({ Response: {} }) };
+  });
+  await client.describeAlarms({ Offset: 0, Limit: 100 });
+  await client.describeAlertRecordHistory({ From: 100000, To: 200000 });
+  assert.deepEqual(requests.map((r) => r.options.headers["X-TC-Action"]), ["DescribeAlarms", "DescribeAlertRecordHistory"]);
+  for (const { url, options } of requests) {
+    assert.equal(url, "https://cls.tencentcloudapi.com");
+    assert.equal(options.headers.Host, "cls.tencentcloudapi.com");
+    assert.equal(options.headers["X-TC-Version"], "2020-10-16");
+    assert.equal(options.headers["X-TC-Region"], "ap-guangzhou");
+    assert.match(options.headers.Authorization, /Credential=sid\/\d{4}-\d{2}-\d{2}\/cls\/tc3_request/);
+  }
+});
+
+test("CLS policy discovery uses offset pagination and normalizes enabled status", async () => {
+  const queries = [];
+  const items = await listAlarmPolicies({}, "ap-guangzhou", {
+    monitorType: "MT_CLS",
+    client: { describeAlarms: async (query) => {
+      queries.push(query);
+      return { TotalCount: 2, Alarms: query.Offset === 0
+        ? [{ AlarmId: "cls-1", Name: "日志异常", Status: true }]
+        : [{ AlarmId: "cls-2", Name: "已停用日志告警", Status: false }] };
+    } },
+  });
+  assert.deepEqual(queries, [{ Offset: 0, Limit: 100 }, { Offset: 100, Limit: 100 }]);
+  assert.deepEqual(items.map((p) => [p.id, p.name, p.monitorType, p.enabled]),
+    [["cls-1", "日志异常", "MT_CLS", true], ["cls-2", "已停用日志告警", "MT_CLS", false]]);
+});
+
+test("CLS polling uses milliseconds, record IDs for deduplication, and keeps diagnosis context", async () => {
+  const { bot } = createPair();
+  const saved = alertStore.saveIntegration({ name: "CLS", botConfigId: bot.id, credentialId: createCredential().id,
+    region: "ap-guangzhou", monitorType: "MT_CLS", policyIds: ["cls-policy"], includeRecovery: true });
+  const integration = alertStore.getIntegration(saved.id, { secrets: true });
+  const record = { RecordId: "record-1", AlarmId: "cls-policy", AlarmName: "业务日志异常", TopicId: "topic-1",
+    TopicName: "订单日志", Trigger: "error_count > 5", Status: 0, CreateTime: 1700000000123, AlarmLevel: 0, GroupTriggerCondition: [{ Key: "service", Value: "orders" }] };
+  const queries = [];
+  const client = { describeAlertRecordHistory: async (query) => {
+    queries.push(query);
+    return { TotalCount: 101, Records: query.Offset === 0 ? [record, { ...record, RecordId: "record-2", Status: 1 }] : [] };
+  } };
+  const schedule = alertWorker.schedule;
+  alertWorker.schedule = () => Promise.resolve();
+  try {
+    const result = await pollIntegration(integration, { client });
+    assert.equal(result.claimed, 2);
+    assert.equal(queries[0].From, result.startTime * 1000);
+    assert.equal(queries[0].To, result.endTime * 1000);
+    assert.equal(queries[1].Offset, 100);
+    assert.deepEqual(queries[0].Filters, [{ Key: "status", Values: ["0", "1"] }, { Key: "alertId", Values: ["cls-policy"] }]);
+    assert.equal((await pollIntegration(integration, { client })).claimed, 0);
+    const jobs = alertStore.listJobs();
+    const first = jobs.find((job) => job.alarmId === "record-1");
+    assert.equal(first.payload.PolicyId, "cls-policy");
+    assert.equal(first.payload.FirstOccurTime, 1700000000);
+    assert.equal(first.payload.Region, "ap-guangzhou");
+    assert.deepEqual(first.payload.RawData, record);
+    assert.match(alertWorker.defaultPrompt(first.payload), /订单日志/);
+    assert.match(alertWorker.defaultPrompt(first.payload), /级别：0/);
+    assert.match(alertWorker.defaultPrompt(first.payload), /GroupTriggerCondition/);
+    assert.equal(jobs.find((job) => job.alarmId === "record-2").alarmStatus, "OK");
+  } finally { alertWorker.schedule = schedule; }
+  assert.deepEqual(queryFor({ ...integration, policyIds: [], includeRecovery: false }, 1, 100, 200).Filters,
+    [{ Key: "status", Values: ["0"] }]);
+});
+
+test("monitoring scope is explicit, preserves legacy CVM defaults, and resets the cursor when changed", () => {
+  const { bot } = createPair();
+  const input = { name: "范围配置", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou" };
+  const legacy = alertStore.saveIntegration(input);
+  assert.equal(legacy.namespace, "cvm_device");
+  assert.throws(() => alertStore.saveIntegration({ ...input, policyScope: "selected", policyIds: [] }), /policy is required/);
+  assert.throws(() => alertStore.saveIntegration({ ...input, policyScope: "all", policyIds: ["policy-1"] }), /Invalid policy scope/);
+  assert.throws(() => alertStore.saveIntegration({ ...input, monitorType: "bad-source" }), /Invalid monitor type/);
+  alertStore.updatePollState(legacy.id, { attemptedAt: 123, succeededAt: 123 });
+  const unchanged = alertStore.saveIntegration({ ...input, name: "重命名" }, legacy.id);
+  assert.equal(unchanged.lastSuccessAt, 123);
+  const all = alertStore.saveIntegration({ ...input, namespace: "", policyScope: "all" }, legacy.id);
+  assert.equal(all.namespace, "");
+  assert.equal(all.lastSuccessAt, null);
+  assert.equal(queryFor(all, 1, 100, 200).Namespaces, undefined);
+  const apm = alertStore.saveIntegration({ ...input, monitorType: "MT_TAW" });
+  assert.equal(apm.namespace, "");
+  const cls = alertStore.saveIntegration({ ...input, monitorType: "MT_CLS", namespace: "cvm_device" });
+  assert.equal(cls.namespace, "");
+});
+
+test("changing the execution Bot clears the old group binding", () => {
+  const { bot, agent } = createPair();
+  const input = { name: "推送配置", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou" };
+  const saved = alertStore.saveIntegration(input);
+  const bound = alertStore.bindChat(saved.bindCode, bot.id, "original-chat");
+  assert.equal(alertStore.saveIntegration(input, saved.id).targetChatId, "original-chat");
+  const second = registry.saveBot({ name: "Other Bot", botId: "other-bot", secret: "other-secret", cloudAgentId: agent.id });
+  const updated = alertStore.saveIntegration({ ...input, botConfigId: second.id }, saved.id);
+  assert.equal(updated.targetChatId, "");
+  assert.notEqual(updated.bindCode, bound.bindCode);
+  assert.throws(() => alertStore.bindChat(updated.bindCode, bot.id, "wrong-chat"), /不属于当前 Bot/);
+});
+
+test("a failed CLS history page does not advance the cursor and earlier records can be retried safely", async () => {
+  const { bot } = createPair();
+  const saved = alertStore.saveIntegration({ name: "CLS retry", botConfigId: bot.id, credentialId: createCredential().id,
+    region: "ap-guangzhou", monitorType: "MT_CLS" });
+  const integration = alertStore.getIntegration(saved.id, { secrets: true });
+  const client = { describeAlertRecordHistory: async ({ Offset }) => {
+    if (Offset) throw new Error("CLS unavailable");
+    return { TotalCount: 101, Records: [{ RecordId: "partial-record", AlarmId: "policy", Status: 0 }] };
+  } };
+  await assert.rejects(pollIntegration(integration, { client }), /CLS unavailable/);
+  assert.equal(alertStore.getIntegration(saved.id).lastSuccessAt, null);
+  assert.equal(alertStore.listJobs().length, 1);
+  await assert.rejects(pollIntegration(integration, { client }), /CLS unavailable/);
+  assert.equal(alertStore.listJobs().length, 1);
 });

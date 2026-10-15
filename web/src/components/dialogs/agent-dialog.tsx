@@ -27,7 +27,7 @@ export function AgentDialog({
         <DialogHeader>
           <DialogTitle>连接 CloudAgent</DialogTitle>
           <DialogDescription>
-            选择企业 API Key，从拉取的 Agent 列表中选择要绑定的 Agent。
+            选择 WorkBuddy API Key，从拉取的 Agent 列表中选择要绑定的 Agent。
           </DialogDescription>
         </DialogHeader>
         {open && (

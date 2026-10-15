@@ -63,7 +63,7 @@ export function KeyForm({
           id="key-name"
           required
           maxLength={100}
-          placeholder="生产环境企业 Key"
+          placeholder="生产环境 WorkBuddy Key"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />

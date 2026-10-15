@@ -32,7 +32,8 @@
 服务不需要入站公网端口，但 IDC 必须允许以下出站访问：
 
 - `wss://openws.work.weixin.qq.com:443`（企业微信长连接；私有部署企业以管理端显示地址为准）
-- `https://monitor.tencentcloudapi.com:443`（腾讯云告警历史轮询）
+- `https://monitor.tencentcloudapi.com:443`（云产品监控、APM 告警策略与历史）
+- `https://cls.tencentcloudapi.com:443`（CLS 日志告警策略与历史，使用 CLS 来源时需要）
 - `https://www.codebuddy.cn:443`（AgentOS API）
 - Runtime 返回的 `*.sandbox.codebuddy.cn:443` 等 ACP 地址
 - 正常 DNS 解析
@@ -141,9 +142,9 @@ npm start
 
 ## 页面配置顺序
 
-1. 在 WorkBuddy 创建并发布企业智能体，并在企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）取得企业 API Key。
-2. 在管理页“企业 API Key”区域新增 Key 配置（支持多个）；点击“测试”确认该 Key 能看到企业 Agent。注意：个人 PAT（`pt_` 开头）看不到企业智能体。
-3. 在管理页“CloudAgent”区域新增配置：选择企业 API Key → 点击“拉取 Agent 列表”→ 选择一个 Agent 绑定；点击“测试”确认连通。也可以切换为手动输入 Agent ID 和 API Key。
+1. 在 WorkBuddy 创建并发布企业智能体，并在企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）取得 WorkBuddy API Key。
+2. 在管理页“WorkBuddy API Key”区域新增 Key 配置（支持多个）；点击“测试”确认该 Key 能看到企业 Agent。注意：个人 PAT（`pt_` 开头）看不到企业智能体。
+3. 在管理页“CloudAgent”区域新增配置：选择 WorkBuddy API Key → 点击“拉取 Agent 列表”→ 选择一个 Agent 绑定；点击“测试”确认连通。也可以切换为手动输入 Agent ID 和 API Key。
 4. 在管理页“企业微信 Bot 配对”区域新增配对，二选一：
    - **扫码创建（推荐）**：选择“扫码创建”标签页，生成二维码后用企业微信扫码确认“一键创建机器人”，网关自动取得 Bot ID/Secret 并完成配对（Secret 只保存在服务端）。扫码来源标识通过 `WECOM_PAIRING_SOURCE` 配置，未设置时回退 `wecom_cli_external`，生产环境应向企业微信申请正式来源标识。
    - **绑定已有机器人**：在企业微信管理端把机器人连接方式改为“使用长连接”，取得 Bot ID 和 Secret 后手动填写。
@@ -155,19 +156,35 @@ npm start
 
 1. 确认用于 RCA 的 CloudAgent 已绑定 CloudQ 等诊断技能，并使用最小权限凭据。
 2. 在左侧“腾讯云凭证”录入并测试 `SecretId` / `SecretKey`；创建告警 RCA 配置必须先有可用凭证。
-3. 在“告警 RCA”新增配置，选择已有 Bot、腾讯云凭证和地域。系统会通过 `DescribeAlarmPolicies` 拉取该地域全部告警策略，可按名称或 ID 多选；不选具体策略时使用高级配置中的 Monitor Type / Namespace 过滤。
+3. 在“告警 RCA”新增配置，按四步完成设置：
+   - **告警来源**：选择云产品监控、应用性能监控 APM 或日志服务 CLS，再选择腾讯云凭证和告警所在地域。每条配置对应一种来源；切换来源、凭证或地域会清空旧策略选择。
+   - **监控范围**：选择“指定告警策略”（至少选择一个，最多 100 个），或明确选择“全部符合条件的策略”。全部范围会包含以后新增的策略；云产品监控和 APM 还可以按策略类型缩小范围。留空策略类型表示全部类型，不会隐式限定到 CVM。编辑旧配置时保留原有 CVM 等类型过滤。
+   - **诊断与推送**：填写配置名称、选择已有 Bot、设置轮询间隔，配置自动轮询与 CloudQ 诊断凭证。首次回溯、重叠窗口、自定义 Prompt 和恢复状态放在高级配置中。
+   - **确认配置**：最后统一核对来源、查询凭证、地域、策略范围、执行 Bot/Agent、群绑定、诊断凭证及高级设置；支持返回对应步骤修改，确认后才保存。凭证只显示名称。
 4. 保存后，页面会显示一次性绑定指令，例如 `/bind-alert A7K92F`。
 5. 把所选 Bot 加入固定告警群，并在群里发送该绑定指令；Bot 会确认绑定并记录群聊 `chatid`。
 6. 回到页面点击“测试推送”，确认长连接可以主动向该群发送 Markdown。
 7. 点击“立即轮询”验证腾讯云 API 权限。之后服务按配置间隔自动轮询。
 
-轮询使用腾讯云 `DescribeAlarmHistories` API。默认每 60 秒执行一次，并重叠查询最近 5 分钟；SQLite 使用 `配置 ID + AlarmId + AlarmStatus` 去重，所以重叠窗口不会重复执行 RCA。首次启用默认只回溯 10 分钟，避免一次性处理大量旧告警。
+云产品监控和 APM 分别使用 `MT_QCE`、`MT_TAW`，通过 Monitor 的 `DescribeAlarmPolicies` 获取策略、`DescribeAlarmHistories` 获取历史；策略列表和轮询均按来源过滤，指定策略后仍保留来源过滤。
+
+CLS 使用 `cls.tencentcloudapi.com`（版本 `2020-10-16`），通过 `DescribeAlarms` 获取策略、`DescribeAlertRecordHistory` 获取历史。凭证需额外具备 `cls:DescribeAlarms` 和 `cls:DescribeAlertRecordHistory` 读取权限。配置中 `MT_CLS` 是本服务用于来源路由的标识，不会作为 Monitor 参数发送。CLS 历史的 `RecordId` 用作告警事件 ID，`AlarmId` 用作策略 ID；毫秒时间、告警状态、日志主题和触发条件会转换为统一 RCA 字段，并保留原始记录供诊断使用。
+
+默认每 60 秒执行一次，并重叠查询最近 5 分钟；SQLite 使用 `配置 ID + AlarmId + AlarmStatus` 去重，所以重叠窗口不会重复执行 RCA。首次启用默认只回溯 10 分钟，避免一次性处理大量旧告警。更改来源、凭证、地域或策略范围后会重置轮询游标，按首次回溯窗口重新查询；更换执行 Bot 后会解除旧群绑定，需要用新 Bot 重新绑定。
 
 告警任务状态依次为：`queued → analyzing → delivery_pending → delivering → delivered`。诊断失败会标记 `failed`；主动推送失败会指数退避重试，页面支持手动重试。
 
 当前版本默认只处理 `ALARM`。虽然高级配置可以同时查询 `OK`，但告警历史接口的时间范围基于首次发生时间，持续很久后才恢复的告警可能超出轮询窗口；对恢复通知有严格要求时应改用通知历史接口。
 
 告警历史返回的数据通常比实时 Webhook 少。如果 RCA 必须获得完整阈值条件，可以在后续版本根据 `PolicyId` 再调用策略详情接口补全。
+
+“自定义诊断 Prompt”会直接显示后端使用的系统默认模板，可在其基础上编辑，也可点击“恢复默认”。未修改时只保存默认模式，后续继续使用系统默认模板；已有自定义内容不会被覆盖。悬停、聚焦或点击旁边的问号可查看全部变量、当前来源的字段说明和填写示例。
+
+云产品监控、APM、CLS 共用一套模板变量名，运行时内容随来源变化，缺失字段为空。原有 `{{alarm_json}}`、`{{alarm_id}}`、`{{alarm_object}}`、`{{alarm_content}}`、`{{policy_name}}`、`{{region}}` 保持兼容；另外支持默认模板中使用的来源、状态、策略 ID、策略类型、时间、维度、指标和原始 JSON 等变量，完整清单见页面提示。CLS 的 `{{alarm_id}}` 对应事件 `RecordId`，`{{policy_id}}` 对应策略 `AlarmId`；`{{raw_json}}` 保留日志主题和触发条件等来源特有字段。模板只支持 `{{变量名}}` 替换，不支持点路径表达式；APM 未返回的应用 ID、Trace ID 不会自动补全。
+
+“诊断与推送”步骤在“启用自动轮询”上方提供 **CloudQ 诊断凭证（可选）**，无需展开高级配置，也不依赖是否修改 Prompt，可独立选择“腾讯云凭证”中已保存的条目，与拉取告警使用的凭证分开。默认不嵌入，继续使用 Agent 已有环境。选择后，每次诊断开始时读取该凭证的最新值，在实际发送给 CloudAgent 的 Prompt 末尾追加运行时配置，要求 Agent 将 `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY` 和当前配置地域 `TENCENTCLOUD_REGION` 传入执行 CloudQ 的进程环境。此方式依赖 Agent 按技能说明设置并使用环境变量，不会直接改变网关或云端沙箱的全局环境。
+
+页面、默认模板及模板变量接口不会返回追加的凭证正文；SQLite 的配置只保存诊断凭证引用。告警任务的 Prompt 只保存诊断正文和“运行时已注入”的标记，不保存追加的凭证块。带凭证的诊断使用独立的静默 SDK 客户端，并在结果、错误和本地日志写入前遮盖已知 SecretId/SecretKey（包括常见 JSON/URL/base64 编码形式）。这些措施不控制 CloudAgent 云端会话和技能内部的记录；真实凭证会随请求发送给所选 CloudAgent，可能保留在云端会话中。轮换凭证后新诊断自动使用最新值；被诊断配置引用的凭证不可删除，先取消选择或更换引用即可。
 
 从 URL 回调切换成长连接后，应停用原 SCF 网关，避免同一个 Bot 存在两套接入方式。企业微信若发出 `disconnected_event`，通常说明同一 Bot 又建立了一条新连接。
 
@@ -208,7 +225,7 @@ src/monitor-client.js     腾讯云 API v3 签名与告警历史查询
 src/alert-poller.js       多配置告警轮询、时间窗口和分页
 src/alert-store.js        告警配置、群绑定、去重任务和历史
 src/alert-worker.js       独立 Agent RCA 与长连接主动推送
-src/registry.js           企业 API Key、Bot/Agent 配置、唯一配对与敏感字段隐藏
+src/registry.js           WorkBuddy API Key、Bot/Agent 配置、唯一配对与敏感字段隐藏
 src/database.js           SQLite 初始化与 schema
 src/store.js              Session/任务持久化
 src/scheduler.js          按会话串行调度

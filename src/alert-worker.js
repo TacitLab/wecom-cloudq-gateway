@@ -6,50 +6,10 @@ const registry = require("./registry");
 const { adapterFor } = require("./worker");
 const { finalizeAgentText } = require("./cloudagent");
 const { safeError } = require("./utils");
+const { defaultPrompt, renderPrompt } = require("./alert-prompt");
+const { credentialRedactor, INJECTED_CREDENTIAL_NOTICE, withDiagnosticCredential } = require("./alert-credentials");
 
 let active;
-
-function defaultPrompt(history) {
-  const metrics = Array.isArray(history.MetricsInfo) ? history.MetricsInfo : [];
-  return [
-    "请对以下腾讯云可观测告警执行根因分析。使用企业智能体已配置并发布的诊断技能查询真实数据；不要编造未查询到的指标或根因。",
-    "",
-    "请按以下结构输出：",
-    "### 告警概述",
-    "### 根因分析",
-    "### 影响范围",
-    "### 处置建议",
-    "### 数据与权限异常（没有则省略）",
-    "",
-    "【告警数据】",
-    `告警 ID：${history.AlarmId || ""}`,
-    `状态：${history.AlarmStatus || ""}`,
-    `对象：${history.AlarmObject || ""}`,
-    `地域：${history.Region || ""}`,
-    `策略：${history.PolicyName || ""} (${history.PolicyId || ""})`,
-    `类型：${history.MonitorType || ""}/${history.Namespace || ""}`,
-    `级别：${history.AlarmLevel || ""}`,
-    `首次发生：${history.FirstOccurTime || ""}`,
-    `最后发生：${history.LastOccurTime || ""}`,
-    `内容：${history.Content || ""}`,
-    `维度：${history.Dimensions || history.InternalDimensions || ""}`,
-    `指标：${JSON.stringify(metrics)}`,
-  ].join("\n");
-}
-
-function renderPrompt(integration, history) {
-  if (!integration.promptTemplate) return defaultPrompt(history);
-  const replacements = {
-    alarm_json: JSON.stringify(history, null, 2),
-    alarm_id: history.AlarmId || "",
-    alarm_object: history.AlarmObject || "",
-    alarm_content: history.Content || "",
-    policy_name: history.PolicyName || "",
-    region: history.Region || "",
-  };
-  return integration.promptTemplate.replace(/\{\{([a-z_]+)\}\}/gi, (match, key) =>
-    Object.hasOwn(replacements, key) ? String(replacements[key]) : match);
-}
 
 function splitUtf8(value, maxBytes = 3800) {
   const parts = [];
@@ -69,22 +29,33 @@ function splitUtf8(value, maxBytes = 3800) {
 async function analyze(job, integration) {
   const pair = registry.pairForBot(integration.botConfigId);
   if (!pair?.bot.enabled) throw new Error("Configured Bot is disabled or unavailable");
-  const adapter = adapterFor(pair.agent);
+  const credential = integration.diagnosticCredentialId
+    ? registry.getTencentCredential(integration.diagnosticCredentialId, { secrets: true }) : undefined;
+  if (integration.diagnosticCredentialId && !credential) throw new Error("CloudQ diagnostic credential not found");
+  const redact = credentialRedactor(credential);
+  const adapter = adapterFor(pair.agent, { sensitive: Boolean(credential) });
   const prompt = renderPrompt(integration, job.payload);
-  const conversation = await adapter.createConversation(`alert:${integration.id}:${job.eventKey}`);
-  let answer = "";
-  const response = await adapter.sendMessage(conversation, prompt, (delta) => { answer += delta; });
-  const finalAnswer = finalizeAgentText(answer || "诊断任务已完成，但 Agent 未返回文本结果。");
-  alertStore.updateJob(job.id, {
-    prompt,
-    answer: finalAnswer,
-    runtimeId: conversation.runtimeId,
-    sessionId: conversation.sessionId,
-    status: "delivery_pending",
-    nextAttemptAt: 0,
-    error: response?.stopReason ? `stopReason=${response.stopReason}` : null,
-  });
-  return { ...job, prompt, answer: finalAnswer, runtimeId: conversation.runtimeId, sessionId: conversation.sessionId };
+  try {
+    const conversation = await adapter.createConversation(`alert:${integration.id}:${job.eventKey}`);
+    let answer = "";
+    const response = await adapter.sendMessage(conversation,
+      withDiagnosticCredential(prompt, credential, integration.region), (delta) => { answer += delta; });
+    const finalAnswer = redact(finalizeAgentText(answer || "诊断任务已完成，但 Agent 未返回文本结果。"));
+    const recordedPrompt = redact(credential ? `${prompt}\n\n${INJECTED_CREDENTIAL_NOTICE}` : prompt);
+    alertStore.updateJob(job.id, {
+      prompt: recordedPrompt,
+      answer: finalAnswer,
+      runtimeId: conversation.runtimeId,
+      sessionId: conversation.sessionId,
+      status: "delivery_pending",
+      nextAttemptAt: 0,
+      error: response?.stopReason ? redact(`stopReason=${response.stopReason}`) : null,
+    });
+    return { ...job, prompt: recordedPrompt, answer: finalAnswer, runtimeId: conversation.runtimeId, sessionId: conversation.sessionId };
+  } catch (error) {
+    // SDK failures may include the sent request body. Do not propagate it to job history or logs.
+    throw new Error(redact(safeError(error)));
+  }
 }
 
 async function deliver(job, integration) {

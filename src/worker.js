@@ -10,9 +10,11 @@ const { safeError, truncateUtf8 } = require("./utils");
 
 const adapters = new Map();
 
-function adapterFor(agent) {
-  const key = `${agent.id}:${agent.revision}`;
-  if (!adapters.has(key)) adapters.set(key, new CloudAgentAdapter({ ...agent, agentName: agent.name }));
+function adapterFor(agent, { sensitive = false } = {}) {
+  const key = `${agent.id}:${agent.revision}${sensitive ? ":sensitive" : ""}`;
+  if (!adapters.has(key)) adapters.set(key, new CloudAgentAdapter({
+    ...agent, agentName: agent.name, ...(sensitive ? { logLevel: "off" } : {}),
+  }));
   return adapters.get(key);
 }
 

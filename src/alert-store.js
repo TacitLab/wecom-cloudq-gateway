@@ -1,7 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const { validateRegion } = require("./alert-config");
+const { validateMonitorType, validateRegion } = require("./alert-config");
 const { db } = require("./database");
 const { runtimeConfig } = require("./config");
 
@@ -37,6 +37,8 @@ function integrationFromRow(row, { secrets = false } = {}) {
     cloudAgentName: row.cloud_agent_name,
     credentialId: row.credential_id || null,
     credentialName: row.credential_name || null,
+    diagnosticCredentialId: row.diagnostic_credential_id || null,
+    diagnosticCredentialName: row.diagnostic_credential_name || null,
     ...(secrets ? { secretId: row.secret_id, secretKey: row.secret_key } : {
       secretIdConfigured: Boolean(row.secret_id),
       secretKeyConfigured: Boolean(row.secret_key),
@@ -63,11 +65,12 @@ function integrationFromRow(row, { secrets = false } = {}) {
 }
 
 const INTEGRATION_SELECT = `
-  SELECT i.*, b.name AS bot_name, a.name AS cloud_agent_name, c.name AS credential_name
+  SELECT i.*, b.name AS bot_name, a.name AS cloud_agent_name, c.name AS credential_name, d.name AS diagnostic_credential_name
   FROM alert_integrations i
   JOIN wecom_bots b ON b.id=i.bot_config_id
   JOIN cloud_agents a ON a.id=b.cloud_agent_id
   LEFT JOIN tencent_credentials c ON c.id=i.credential_id
+  LEFT JOIN tencent_credentials d ON d.id=i.diagnostic_credential_id
 `;
 
 function listIntegrations(options) {
@@ -91,43 +94,62 @@ function saveIntegration(input, id) {
     ? database.prepare("SELECT * FROM tencent_credentials WHERE id=?").get(credentialId)
     : undefined;
   if (!credential) throw new Error("Selected Tencent Cloud credential not found");
+  const diagnosticCredentialId = input.diagnosticCredentialId === undefined
+    ? existing?.diagnostic_credential_id || null
+    : text(input.diagnosticCredentialId, "CloudQ diagnostic credential", { required: false, max: 100 }) || null;
+  if (diagnosticCredentialId && !database.prepare("SELECT id FROM tencent_credentials WHERE id=?").get(diagnosticCredentialId)) {
+    throw new Error("Selected CloudQ diagnostic credential not found");
+  }
+  const monitorType = validateMonitorType(input.monitorType || existing?.monitor_type || "MT_QCE");
+  const policyIds = parsePolicyIds(input.policyIds);
+  if (input.policyScope && !["selected", "all"].includes(input.policyScope)) throw new Error("Invalid policy scope");
+  if (input.policyScope === "selected" && !policyIds.length) throw new Error("At least one alarm policy is required");
+  if (input.policyScope === "all" && policyIds.length) throw new Error("Invalid policy scope: all-policy scope cannot include selected policies");
   const now = Date.now();
   const record = {
     id: existing?.id || crypto.randomUUID(),
     name: text(input.name, "Integration name", { max: 100 }),
     botConfigId,
     credentialId,
+    diagnosticCredentialId,
     secretId: credential.secret_id,
     secretKey: credential.secret_key,
     region: validateRegion(input.region),
-    monitorType: text(input.monitorType || "MT_QCE", "Monitor type", { max: 50 }),
-    namespace: text(input.namespace || "cvm_device", "Namespace", { max: 100 }),
-    policyIdsJson: JSON.stringify(parsePolicyIds(input.policyIds)),
+    monitorType,
+    namespace: monitorType === "MT_CLS" ? "" : text(input.namespace ?? (monitorType === "MT_QCE" ? "cvm_device" : ""), "Namespace", { required: false, max: 100 }),
+    policyIdsJson: JSON.stringify(policyIds),
     pollIntervalSeconds: integer(input.pollIntervalSeconds, 60, "Poll interval", 30),
     initialLookbackSeconds: integer(input.initialLookbackSeconds, 600, "Initial lookback", 60),
     overlapSeconds: integer(input.overlapSeconds, 300, "Overlap window", 0),
     promptTemplate: text(input.promptTemplate, "Prompt template", { required: false, max: 20000 }),
     includeRecovery: input.includeRecovery ? 1 : 0,
     enabled: input.enabled === false ? 0 : 1,
-    bindCode: existing?.bind_code || newBindCode(),
+    bindCode: existing && existing.bot_config_id === botConfigId ? existing.bind_code : newBindCode(),
   };
+  const policySelectionChanged = existing &&
+    JSON.stringify(JSON.parse(existing.policy_ids_json).sort()) !== JSON.stringify([...policyIds].sort());
+  const scopeChanged = existing && (existing.credential_id !== credentialId || existing.region !== record.region ||
+    existing.monitor_type !== monitorType || policySelectionChanged ||
+    (!policyIds.length && existing.namespace !== record.namespace) || existing.include_recovery !== record.includeRecovery);
+  const botChanged = existing && existing.bot_config_id !== botConfigId;
   database.prepare(`
     INSERT INTO alert_integrations
-      (id,name,bot_config_id,credential_id,secret_id,secret_key,region,monitor_type,namespace,policy_ids_json,poll_interval_seconds,initial_lookback_seconds,overlap_seconds,prompt_template,include_recovery,enabled,bind_code,target_chat_id,target_chat_name,last_attempt_at,last_success_at,last_error,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      (id,name,bot_config_id,credential_id,secret_id,secret_key,region,monitor_type,namespace,policy_ids_json,poll_interval_seconds,initial_lookback_seconds,overlap_seconds,prompt_template,include_recovery,enabled,bind_code,target_chat_id,target_chat_name,last_attempt_at,last_success_at,last_error,created_at,updated_at,diagnostic_credential_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
-      name=excluded.name,bot_config_id=excluded.bot_config_id,credential_id=excluded.credential_id,secret_id=excluded.secret_id,secret_key=excluded.secret_key,
+      name=excluded.name,bot_config_id=excluded.bot_config_id,credential_id=excluded.credential_id,diagnostic_credential_id=excluded.diagnostic_credential_id,secret_id=excluded.secret_id,secret_key=excluded.secret_key,
       region=excluded.region,monitor_type=excluded.monitor_type,namespace=excluded.namespace,policy_ids_json=excluded.policy_ids_json,
       poll_interval_seconds=excluded.poll_interval_seconds,initial_lookback_seconds=excluded.initial_lookback_seconds,
       overlap_seconds=excluded.overlap_seconds,prompt_template=excluded.prompt_template,include_recovery=excluded.include_recovery,
-      enabled=excluded.enabled,updated_at=excluded.updated_at
+      enabled=excluded.enabled,bind_code=excluded.bind_code,target_chat_id=excluded.target_chat_id,target_chat_name=excluded.target_chat_name,
+      last_attempt_at=excluded.last_attempt_at,last_success_at=excluded.last_success_at,last_error=excluded.last_error,updated_at=excluded.updated_at
   `).run(
     record.id, record.name, record.botConfigId, record.credentialId, record.secretId, record.secretKey, record.region,
     record.monitorType, record.namespace, record.policyIdsJson, record.pollIntervalSeconds,
     record.initialLookbackSeconds, record.overlapSeconds, record.promptTemplate, record.includeRecovery,
-    record.enabled, record.bindCode, existing?.target_chat_id || null, existing?.target_chat_name || null,
-    existing?.last_attempt_at || null, existing?.last_success_at || null, existing?.last_error || null,
-    existing?.created_at || now, now,
+    record.enabled, record.bindCode, botChanged ? null : existing?.target_chat_id || null, botChanged ? null : existing?.target_chat_name || null,
+    scopeChanged ? null : existing?.last_attempt_at || null, scopeChanged ? null : existing?.last_success_at || null, scopeChanged ? null : existing?.last_error || null,
+    existing?.created_at || now, now, record.diagnosticCredentialId,
   );
   return getIntegration(record.id);
 }

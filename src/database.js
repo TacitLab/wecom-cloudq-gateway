@@ -166,6 +166,9 @@ function db() {
     database.exec("ALTER TABLE alert_integrations ADD COLUMN credential_id TEXT REFERENCES tencent_credentials(id) ON DELETE RESTRICT");
     migrateInlineTencentCredentials(database);
   }
+  if (!alertColumns.includes("diagnostic_credential_id")) {
+    database.exec("ALTER TABLE alert_integrations ADD COLUMN diagnostic_credential_id TEXT REFERENCES tencent_credentials(id) ON DELETE RESTRICT");
+  }
   return database;
 }
 
