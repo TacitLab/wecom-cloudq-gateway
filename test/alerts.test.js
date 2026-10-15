@@ -132,6 +132,53 @@ test("group @Bot /stop immediately aborts the active conversation task", async (
   }
 });
 
+test("binding intercepts a spaced display-name mention in text and mixed messages without creating Agent tasks", async () => {
+  const { bot } = createPair();
+  const credential = createCredential();
+  for (const msgtype of ["text", "mixed"]) {
+    const integration = alertStore.saveIntegration({ name: `Bind ${msgtype}`, botConfigId: bot.id, credentialId: credential.id, region: "ap-guangzhou" });
+    const content = `@多云管理 AIOPS agent\u2005/bind-alert ${integration.bindCode}`;
+    const replies = [];
+    await handleMessage(bot.id, { replyStream: async (...args) => { replies.push(args); } }, {
+      body: {
+        msgid: `msg-bind-${msgtype}`, aibotid: bot.botId, chattype: "group", chatid: `chat-${msgtype}`,
+        from: { userid: "admin" }, msgtype,
+        ...(msgtype === "text" ? { text: { content } } : { mixed: { msg_item: [{ msgtype: "text", text: { content } }] } }),
+      },
+    });
+    assert.equal(alertStore.getIntegration(integration.id).targetChatId, `chat-${msgtype}`);
+    assert.match(replies[0][2], /已绑定/);
+    assert.equal(db().prepare("SELECT COUNT(*) AS n FROM tasks").get().n, 0);
+  }
+});
+
+test("display-name binding still rejects invalid codes and codes assigned to another Bot", async () => {
+  const { bot } = createPair();
+  const otherBot = registry.saveBot({ name: bot.name, botId: "aibot-other", secret: "test-secret", cloudAgentId: bot.cloudAgentId });
+  const integration = alertStore.saveIntegration({ name: "Own Bot only", botConfigId: otherBot.id, credentialId: createCredential().id, region: "ap-guangzhou" });
+  for (const code of ["INVALID_CODE", integration.bindCode]) {
+    const replies = [];
+    await handleMessage(bot.id, { replyStream: async (...args) => { replies.push(args); } }, {
+      body: {
+        msgid: `msg-invalid-${code}`, aibotid: bot.botId, chattype: "group", chatid: "chat-unbound",
+        from: { userid: "admin" }, msgtype: "text", text: { content: `@多云管理 AIOPS agent /bind-alert ${code}` },
+      },
+    });
+    assert.match(replies[0][2], /绑定失败/);
+  }
+  assert.equal(alertStore.getIntegration(integration.id).targetChatId, "");
+  assert.equal(db().prepare("SELECT COUNT(*) AS n FROM tasks").get().n, 0);
+  const replies = [];
+  await handleMessage(otherBot.id, { replyStream: async (...args) => { replies.push(args); } }, {
+    body: {
+      msgid: "msg-correct-bot", aibotid: otherBot.botId, chattype: "group", chatid: "chat-correct-bot",
+      from: { userid: "admin" }, msgtype: "text", text: { content: `@多云管理 AIOPS agent /bind-alert ${integration.bindCode}` },
+    },
+  });
+  assert.match(replies[0][2], /已绑定/);
+  assert.equal(alertStore.getIntegration(integration.id).targetChatId, "chat-correct-bot");
+});
+
 test("notifier proactively sends markdown over the authenticated Bot connection", async () => {
   const calls = [];
   const client = {

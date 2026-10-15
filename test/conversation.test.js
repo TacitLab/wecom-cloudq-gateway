@@ -55,6 +55,23 @@ test("normalizes complete gateway commands after a WeCom group @mention", () => 
   assert.equal(normalizeGatewayCommand("@工作搭子-凤凰 /new", "single"), "@工作搭子-凤凰 /new");
 });
 
+test("bind commands accept spaced WeCom display names independently of the local Bot label", () => {
+  for (const name of ["多云管理 AIOPS agent", "多云管理\u00a0AIOPS\u2005agent"]) {
+    for (const separator of [" ", "\u2005", "\n"]) {
+      assert.equal(normalizeGatewayCommand(`@${name}${separator}/bind-alert FVMAF1A`, "group", "粉红凤凰"), "/bind-alert FVMAF1A");
+    }
+  }
+  for (const text of [
+    "@多云管理 AIOPS agent /bind-alert FVMAF1A extra",
+    "@多云管理 AIOPS agent /new",
+    "@多云管理 AIOPS agent /stop",
+    "请执行 /bind-alert FVMAF1A",
+    "@机器人 请分析\n问题 /bind-alert FVMAF1A",
+  ]) {
+    assert.equal(normalizeGatewayCommand(text, "group", "粉红凤凰"), text);
+  }
+});
+
 test("extractPrompt handles text and mixed text", () => {
   assert.equal(extractPrompt({ msgtype: "text", text: { content: " hello " } }), "hello");
   assert.equal(extractPrompt({

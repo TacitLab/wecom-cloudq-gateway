@@ -46,7 +46,13 @@ function normalizeGatewayCommand(content, chatType = "single", botName = "") {
   const configuredMention = `@${String(botName || "").trim()}`;
   const isSingleMention = /^@\S+$/.test(mentionPrefix);
   const isConfiguredMention = configuredMention !== "@" && mentionPrefix === configuredMention;
-  return isSingleMention || isConfiguredMention ? command[0].trim() : text;
+  // The WeCom display name can contain spaces and differ from our local Bot
+  // label. Binding must not depend on that label: the one-time code is checked
+  // against the receiving Bot in bindChat. Keep stricter parsing for /new and
+  // /stop so natural-language requests cannot reset or stop a conversation.
+  const isBindWithDisplayMention = /^\/bind-alert\s/i.test(command[0])
+    && /^@[^@\r\n]+$/.test(mentionPrefix);
+  return isSingleMention || isConfiguredMention || isBindWithDisplayMention ? command[0].trim() : text;
 }
 
 function extractPrompt(message) {

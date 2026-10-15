@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { ConfirmButton } from '@/components/confirm-button'
@@ -6,6 +7,8 @@ import { JobStatusBadge } from '@/components/status-badges'
 import { TableSkeleton } from '@/components/table-skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -16,6 +19,7 @@ import {
 } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { alertSourceName } from '@/lib/alert-sources'
+import { copyText } from '@/lib/clipboard'
 import { toastTask } from '@/lib/toast-task'
 import type { AdminState } from '@/lib/types'
 
@@ -34,12 +38,14 @@ export function AlertsView({
   onEdit: (id?: string) => void
   onSetupCredential: () => void
 }) {
+  const [manualCopyCommand, setManualCopyCommand] = useState('')
+
   async function copyBindCode(bindCode: string) {
-    try {
-      await navigator.clipboard.writeText(`/bind-alert ${bindCode}`)
+    const command = `/bind-alert ${bindCode}`
+    if (await copyText(command)) {
       toast.success('绑定指令已复制，请在目标企业微信群发送')
-    } catch {
-      toast.error('复制失败，请手动复制绑定指令')
+    } else {
+      setManualCopyCommand(command)
     }
   }
 
@@ -96,6 +102,23 @@ export function AlertsView({
 
   return (
     <div className="flex flex-col gap-4">
+      <Dialog open={Boolean(manualCopyCommand)} onOpenChange={(open) => { if (!open) setManualCopyCommand('') }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>手动复制绑定指令</DialogTitle>
+            <DialogDescription>浏览器未允许自动复制。请复制下方指令，在目标企业微信群中 @所选机器人后发送。</DialogDescription>
+          </DialogHeader>
+          <Input
+            aria-label="绑定指令"
+            className="font-mono"
+            value={manualCopyCommand}
+            readOnly
+            onFocus={(event) => event.currentTarget.select()}
+            onClick={(event) => event.currentTarget.select()}
+          />
+          <p className="text-xs text-muted-foreground">电脑可按 Ctrl+C（Mac 为 ⌘C），手机可长按复制。</p>
+        </DialogContent>
+      </Dialog>
       <PanelCard
         title="告警 RCA"
         hint="定时轮询腾讯云告警历史，使用 Bot 当前绑定的 CloudAgent 诊断，并主动推送到固定群聊。"
