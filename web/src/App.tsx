@@ -9,16 +9,18 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AgentsView } from '@/components/views/agents-view'
 import { AlertsView } from '@/components/views/alerts-view'
 import { KeysView } from '@/components/views/keys-view'
+import { TencentCredentialsView } from '@/components/views/tencent-credentials-view'
 import { PairingsView } from '@/components/views/pairings-view'
 import { AgentDialog } from '@/components/dialogs/agent-dialog'
 import { AlertDialogForm } from '@/components/dialogs/alert-dialog'
 import { BotDialog } from '@/components/dialogs/bot-dialog'
 import { KeyDialog } from '@/components/dialogs/key-dialog'
+import { TencentCredentialDialog } from '@/components/dialogs/tencent-credential-dialog'
 import { useAdminState } from '@/lib/use-admin-state'
 import { isEmptyState, parseView, type ViewKey } from '@/lib/views'
 import { OnboardingPage } from '@/components/views/onboarding-view'
 
-type DialogKind = 'agent' | 'key' | 'bot' | 'alert'
+type DialogKind = 'agent' | 'key' | 'tencent' | 'bot' | 'alert'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>(() => parseView(location.hash) ?? 'pairings')
@@ -60,6 +62,8 @@ export default function App() {
       return toast.error('请先新增 CloudAgent')
     if (kind === 'alert' && state && state.bots.length === 0)
       return toast.error('请先创建 Bot–Agent 配对')
+    if (kind === 'alert' && !id && state && state.tencentCredentials.length === 0)
+      return toast.error('请先在凭证管理新增腾讯云凭证')
     setDialog({ kind, id })
   }
 
@@ -93,8 +97,20 @@ export default function App() {
                 {view === 'keys' && (
                   <KeysView state={state} reload={reload} onEdit={(id) => openDialog('key', id)} />
                 )}
+                {view === 'tencent-credentials' && (
+                  <TencentCredentialsView
+                    state={state}
+                    reload={reload}
+                    onEdit={(id) => openDialog('tencent', id)}
+                  />
+                )}
                 {view === 'alerts' && (
-                  <AlertsView state={state} reload={reload} onEdit={(id) => openDialog('alert', id)} />
+                  <AlertsView
+                    state={state}
+                    reload={reload}
+                    onEdit={(id) => openDialog('alert', id)}
+                    onSetupCredential={() => switchView('tencent-credentials')}
+                  />
                 )}
               </>
             )}
@@ -119,6 +135,12 @@ export default function App() {
       <KeyDialog
         open={dialog?.kind === 'key'}
         record={state?.apiKeys.find((k) => k.id === dialog?.id)}
+        onOpenChange={(open) => !open && setDialog(null)}
+        onSaved={reload}
+      />
+      <TencentCredentialDialog
+        open={dialog?.kind === 'tencent'}
+        record={state?.tencentCredentials.find((c) => c.id === dialog?.id)}
         onOpenChange={(open) => !open && setDialog(null)}
         onSaved={reload}
       />

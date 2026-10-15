@@ -12,7 +12,7 @@ const registry = require("../src/registry");
 const store = require("../src/store");
 
 test.beforeEach(() => {
-  db().exec("DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents; DELETE FROM api_keys;");
+  db().exec("DELETE FROM tasks; DELETE FROM conversations; DELETE FROM alert_integrations; DELETE FROM tencent_credentials; DELETE FROM wecom_bots; DELETE FROM cloud_agents; DELETE FROM api_keys;");
 });
 
 test("stores secrets locally but never exposes them through admin list APIs", () => {
@@ -106,6 +106,46 @@ test("cannot delete an API key while a CloudAgent references it", () => {
   const key = registry.saveKey({ name: "Enterprise Key", apiKey: "corp_one" });
   registry.saveAgent({ name: "Ref Agent", agentId: "agent_DEL", apiKeyConfigId: key.id });
   assert.throws(() => registry.deleteKey(key.id), /still used/);
+});
+
+test("stores tencent credentials with masked SecretId and never exposes the SecretKey", () => {
+  const credential = registry.saveTencentCredential({
+    name: "Prod Tencent",
+    secretId: "AKIDabcdefghijklmnop",
+    secretKey: "secret-key-value",
+  });
+  const listed = registry.listTencentCredentials()[0];
+  assert.equal(listed.secretId, undefined);
+  assert.equal(listed.secretKey, undefined);
+  assert.equal(listed.secretIdMasked, "AKIDab****mnop");
+  assert.equal(listed.secretKeyConfigured, true);
+  assert.equal(registry.getTencentCredential(credential.id, { secrets: true }).secretKey, "secret-key-value");
+  assert.equal(db().prepare("SELECT secret_key FROM tencent_credentials").get().secret_key, "secret-key-value");
+});
+
+test("editing a tencent credential with blank secrets keeps the stored values", () => {
+  const credential = registry.saveTencentCredential({ name: "TC", secretId: "AKID_one", secretKey: "key_one" });
+  const updated = registry.saveTencentCredential({ name: "TC renamed", secretId: "", secretKey: "" }, credential.id);
+  assert.equal(updated.name, "TC renamed");
+  const secrets = registry.getTencentCredential(credential.id, { secrets: true });
+  assert.equal(secrets.secretId, "AKID_one");
+  assert.equal(secrets.secretKey, "key_one");
+  registry.deleteTencentCredential(credential.id);
+  assert.equal(registry.getTencentCredential(credential.id), undefined);
+});
+
+test("resetting an agent clears its conversations and bumps the revision", () => {
+  const agent = registry.saveAgent({ name: "Agent", agentId: "agent_RESET", apiKey: "pt_one" });
+  const bot = registry.saveBot({ name: "Bot", botId: "bot-reset", secret: "secret", cloudAgentId: agent.id });
+  db().prepare(`INSERT INTO conversations (conversation_key,bot_config_id,cloud_agent_id,agent_revision,runtime_id,session_id,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?)`).run("pair:x", bot.id, agent.id, 1, "runtime-1", "session-1", Date.now(), Date.now());
+  const before = registry.getAgent(agent.id).revision;
+
+  const result = registry.resetAgentSessions(agent.id);
+  assert.equal(result.cleared, 1);
+  assert.equal(result.revision, before + 1);
+  assert.equal(db().prepare("SELECT COUNT(*) AS count FROM conversations WHERE cloud_agent_id=?").get(agent.id).count, 0);
+  assert.throws(() => registry.resetAgentSessions("missing"), /not found/);
 });
 
 test("finds agents by business agent ID for pull-list de-duplication", () => {

@@ -191,6 +191,14 @@ function deleteAgent(id) {
   if (!db().prepare("DELETE FROM cloud_agents WHERE id = ?").run(id).changes) throw new Error("CloudAgent configuration not found");
 }
 
+function resetAgentSessions(id) {
+  const database = db();
+  if (!getAgent(id)) throw new Error("CloudAgent configuration not found");
+  const cleared = database.prepare("DELETE FROM conversations WHERE cloud_agent_id = ?").run(id).changes;
+  database.prepare("UPDATE cloud_agents SET revision = revision + 1, updated_at = ? WHERE id = ?").run(Date.now(), id);
+  return { cleared, revision: getAgent(id).revision };
+}
+
 function listKeys(options) {
   return db().prepare("SELECT * FROM api_keys ORDER BY name, created_at").all().map((row) => keyFromRow(row, options));
 }
@@ -229,6 +237,64 @@ function deleteKey(id) {
   const refs = db().prepare("SELECT COUNT(*) AS count FROM cloud_agents WHERE api_key_config_id = ?").get(id).count;
   if (refs) throw new Error("API Key is still used by one or more CloudAgents");
   if (!db().prepare("DELETE FROM api_keys WHERE id = ?").run(id).changes) throw new Error("API Key configuration not found");
+}
+
+function credentialFromRow(row, { secrets = false } = {}) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    name: row.name,
+    ...(secrets
+      ? { secretId: row.secret_id, secretKey: row.secret_key }
+      : { secretIdMasked: maskSecret(row.secret_id), secretKeyConfigured: Boolean(row.secret_key) }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function listTencentCredentials(options) {
+  return db().prepare("SELECT * FROM tencent_credentials ORDER BY name, created_at").all()
+    .map((row) => credentialFromRow(row, options));
+}
+
+function getTencentCredential(id, options) {
+  return credentialFromRow(db().prepare("SELECT * FROM tencent_credentials WHERE id = ?").get(id), options);
+}
+
+function saveTencentCredential(input, id) {
+  const database = db();
+  const existing = id ? database.prepare("SELECT * FROM tencent_credentials WHERE id = ?").get(id) : undefined;
+  if (id && !existing) throw new Error("Tencent Cloud credential not found");
+  const secretId = text(input.secretId, "Tencent Cloud SecretId", { required: !existing, max: 256 });
+  const secretKey = text(input.secretKey, "Tencent Cloud SecretKey", { required: !existing, max: 256 });
+  const now = Date.now();
+  const record = {
+    id: existing?.id || crypto.randomUUID(),
+    name: text(input.name, "Credential name", { max: 100 }),
+    secretId: secretId || existing.secret_id,
+    secretKey: secretKey || existing.secret_key,
+  };
+  const rotated = Boolean(existing) &&
+    (record.secretId !== existing.secret_id || record.secretKey !== existing.secret_key);
+  database.prepare(`
+    INSERT INTO tencent_credentials (id,name,secret_id,secret_key,created_at,updated_at)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,secret_id=excluded.secret_id,secret_key=excluded.secret_key,updated_at=excluded.updated_at
+  `).run(record.id, record.name, record.secretId, record.secretKey, existing?.created_at || now, now);
+  if (rotated) {
+    // Keep the inline AK/SK copy on referencing alert integrations in sync.
+    database.prepare("UPDATE alert_integrations SET secret_id=?, secret_key=?, updated_at=? WHERE credential_id=?")
+      .run(record.secretId, record.secretKey, now, record.id);
+  }
+  return getTencentCredential(record.id);
+}
+
+function deleteTencentCredential(id) {
+  const refs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE credential_id = ?").get(id).count;
+  if (refs) throw new Error("Tencent Cloud credential is still used by one or more alert integrations");
+  if (!db().prepare("DELETE FROM tencent_credentials WHERE id = ?").run(id).changes) {
+    throw new Error("Tencent Cloud credential not found");
+  }
 }
 
 function listBots(options) {
@@ -285,15 +351,20 @@ module.exports = {
   deleteAgent,
   deleteBot,
   deleteKey,
+  deleteTencentCredential,
   findAgentByBusinessId,
   getAgent,
   getBot,
   getKey,
+  getTencentCredential,
   listAgents,
   listBots,
   listKeys,
+  listTencentCredentials,
   pairForBot,
+  resetAgentSessions,
   saveAgent,
   saveBot,
   saveKey,
+  saveTencentCredential,
 };

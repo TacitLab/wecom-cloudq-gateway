@@ -50,7 +50,7 @@ export function KeysView({
 
   return (
     <PanelCard
-      title="凭证管理"
+      title="企业 API Key"
       hint="保存 WorkBuddy 企业后台的 API 集成 Key；新增 CloudAgent 时选择 Key 即可自动拉取 Agent 列表。"
       action={<Button onClick={() => onEdit()}>新增 Key</Button>}
     >

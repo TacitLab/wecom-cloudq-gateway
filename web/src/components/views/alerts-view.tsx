@@ -24,10 +24,12 @@ export function AlertsView({
   state,
   reload,
   onEdit,
+  onSetupCredential,
 }: {
   state: AdminState | null
   reload: () => Promise<void>
   onEdit: (id?: string) => void
+  onSetupCredential: () => void
 }) {
   async function run<T>(task: Promise<T>, loading: string, success: (r: T) => string) {
     try {
@@ -85,13 +87,17 @@ export function AlertsView({
       <PanelCard
         title="告警 RCA"
         hint="定时轮询腾讯云告警历史，使用 Bot 当前绑定的 CloudAgent 诊断，并主动推送到固定群聊。"
-        action={<Button onClick={() => onEdit()}>新增告警配置</Button>}
+        action={state && state.tencentCredentials.length === 0
+          ? <Button variant="outline" onClick={onSetupCredential}>先配置腾讯云凭证</Button>
+          : <Button onClick={() => onEdit()}>新增告警配置</Button>}
       >
         {!state ? (
           <TableSkeleton rows={3} />
         ) : state.alertIntegrations.length === 0 ? (
           <div className="border-t py-8 text-center text-sm text-muted-foreground">
-            尚未配置告警轮询。请先创建 Bot–Agent 配对。
+            {state.tencentCredentials.length === 0
+              ? '告警 RCA 需要腾讯云凭证。请先录入凭证，再创建 RCA 配置。'
+              : '尚未配置告警轮询。请选择凭证、地域和告警策略开始配置。'}
           </div>
         ) : (
           <Table>
@@ -110,7 +116,7 @@ export function AlertsView({
                   <TableCell>
                     <div className="font-medium">{a.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {a.namespace} · {a.pollIntervalSeconds} 秒
+                      {a.credentialName || '未关联凭证'} · {a.region || '未选择地域'} · {a.policyIds.length ? `${a.policyIds.length} 个策略` : '全部策略'}
                     </div>
                   </TableCell>
                   <TableCell>

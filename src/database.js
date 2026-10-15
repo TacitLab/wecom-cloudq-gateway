@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
@@ -92,6 +93,15 @@ function db() {
       UNIQUE(bot_config_id, external_msg_id)
     );
 
+    CREATE TABLE IF NOT EXISTS tencent_credentials (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      secret_id TEXT NOT NULL,
+      secret_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS alert_integrations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -151,7 +161,34 @@ function db() {
   if (!agentColumns.includes("api_key_config_id")) {
     database.exec("ALTER TABLE cloud_agents ADD COLUMN api_key_config_id TEXT REFERENCES api_keys(id) ON DELETE RESTRICT");
   }
+  const alertColumns = database.prepare("PRAGMA table_info(alert_integrations)").all().map((column) => column.name);
+  if (!alertColumns.includes("credential_id")) {
+    database.exec("ALTER TABLE alert_integrations ADD COLUMN credential_id TEXT REFERENCES tencent_credentials(id) ON DELETE RESTRICT");
+    migrateInlineTencentCredentials(database);
+  }
   return database;
+}
+
+// Legacy alert integrations stored Tencent Cloud AK/SK inline. Group them by
+// SecretId, create one credential per group, and backfill credential_id.
+function migrateInlineTencentCredentials(database) {
+  const rows = database.prepare(`
+    SELECT DISTINCT secret_id, secret_key FROM alert_integrations
+    WHERE credential_id IS NULL AND secret_id != ''
+  `).all();
+  for (const row of rows) {
+    const id = crypto.randomUUID();
+    const masked = row.secret_id.length > 10
+      ? `${row.secret_id.slice(0, 6)}****${row.secret_id.slice(-4)}`
+      : row.secret_id;
+    const now = Date.now();
+    database.prepare(`
+      INSERT INTO tencent_credentials (id, name, secret_id, secret_key, created_at, updated_at)
+      VALUES (?,?,?,?,?,?)
+    `).run(id, `迁移凭证 ${masked}`, row.secret_id, row.secret_key, now, now);
+    database.prepare("UPDATE alert_integrations SET credential_id=? WHERE credential_id IS NULL AND secret_id=?")
+      .run(id, row.secret_id);
+  }
 }
 
 function closeDatabase() {

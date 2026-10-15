@@ -1,4 +1,4 @@
-export type ViewKey = 'pairings' | 'agents' | 'keys' | 'alerts'
+export type ViewKey = 'pairings' | 'agents' | 'keys' | 'tencent-credentials' | 'alerts'
 
 export const VIEW_META: Record<ViewKey, { title: string; description: string }> = {
   pairings: {
@@ -10,8 +10,12 @@ export const VIEW_META: Record<ViewKey, { title: string; description: string }> 
     description: '维护可被企业微信 Bot 绑定的企业智能体配置',
   },
   keys: {
-    title: '凭证管理',
+    title: '企业 API Key',
     description: '维护用于拉取和调用企业智能体的 API 集成 Key',
+  },
+  'tencent-credentials': {
+    title: '腾讯云凭证',
+    description: '维护告警 RCA 轮询腾讯云监控所需的 SecretId / SecretKey',
   },
   alerts: {
     title: '告警 RCA',

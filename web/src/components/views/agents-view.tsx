@@ -44,6 +44,19 @@ export function AgentsView({
     }
   }
 
+  async function resetSessions(id: string) {
+    try {
+      await toastTask(
+        api<{ cleared: number; revision: number }>(`/api/admin/agents/${id}/reset-sessions`, { method: 'POST', body: '{}' }),
+        '正在重置会话…',
+        (r) => `已清理 ${r.cleared} 个会话，下一条消息将创建全新运行时`,
+      )
+      await reload()
+    } catch {
+      // 错误已由 toastTask 提示
+    }
+  }
+
   return (
     <PanelCard
       title="Cloud Agent"
@@ -90,6 +103,17 @@ export function AgentsView({
                     <Button variant="outline" size="sm" onClick={() => onEdit(a.id)}>
                       编辑
                     </Button>
+                    <ConfirmButton
+                      trigger={
+                        <Button variant="outline" size="sm">
+                          重置会话
+                        </Button>
+                      }
+                      title="确认重置该 Agent 的全部会话？"
+                      description="将清理本地会话缓存并提升版本号，下一条消息会在全新运行时中开始。用于运行时故障恢复。"
+                      actionLabel="确认重置"
+                      onConfirm={() => resetSessions(a.id)}
+                    />
                     <ConfirmButton
                       trigger={
                         <Button variant="outline" size="sm" className="text-destructive">

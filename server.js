@@ -6,16 +6,19 @@ const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
 const alertPoller = require("./src/alert-poller");
+const { listAlarmPolicies } = require("./src/alert-config");
 const alertStore = require("./src/alert-store");
 const alertWorker = require("./src/alert-worker");
 const { BotManager } = require("./src/bot-manager");
 const { CloudAgentAdapter } = require("./src/cloudagent");
+const { TencentMonitorClient } = require("./src/monitor-client");
 const { closeDatabase, db } = require("./src/database");
 const registry = require("./src/registry");
 const notifier = require("./src/notifier");
 const scheduler = require("./src/scheduler");
 const store = require("./src/store");
 const { serverConfig } = require("./src/config");
+const wecomPairing = require("./src/wecom-pairing");
 const { safeError } = require("./src/utils");
 
 const WEB_DIST = path.join(__dirname, "web", "dist");
@@ -102,6 +105,7 @@ function publicState(botManager) {
     bots: registry.listBots(),
     agents: registry.listAgents(),
     apiKeys: registry.listKeys(),
+    tencentCredentials: registry.listTencentCredentials(),
     connections: botManager.statuses(),
     alertIntegrations: alertStore.listIntegrations(),
     alertJobs: alertStore.listJobs(50),
@@ -185,7 +189,51 @@ function createServer(options = {}) {
         }
       }
 
-      const agentMatch = url.pathname.match(/^\/api\/admin\/agents(?:\/([^/]+))?(?:\/(test))?$/);
+      const tencentMatch = url.pathname.match(/^\/api\/admin\/tencent-credentials(?:\/([^/]+))?(?:\/(test|alarm-policies))?$/);
+      if (tencentMatch) {
+        const [, id, action] = tencentMatch;
+        if (request.method === "GET" && action === "alarm-policies" && id) {
+          const credential = registry.getTencentCredential(id, { secrets: true });
+          if (!credential) throw new Error("Tencent Cloud credential not found");
+          let items;
+          try {
+            items = await listAlarmPolicies(credential, url.searchParams.get("region"));
+          } catch (error) {
+            if (/Region is required|Invalid Tencent Cloud region/.test(safeError(error))) throw error;
+            throw new Error(`Invalid Tencent Cloud credential, missing Monitor read permission, or Monitor API unreachable: ${safeError(error)}`);
+          }
+          send(response, 200, { items });
+          return;
+        }
+        if (request.method === "POST" && action === "test" && id) {
+          const credential = registry.getTencentCredential(id, { secrets: true });
+          if (!credential) throw new Error("Tencent Cloud credential not found");
+          try {
+            await new TencentMonitorClient(credential)
+              .describeAlarmHistories({ Module: "monitor", PageNumber: 1, PageSize: 1 });
+          } catch (error) {
+            throw new Error(`Invalid Tencent Cloud AK/SK or Monitor API unreachable: ${safeError(error)}`);
+          }
+          send(response, 200, { ok: true });
+          return;
+        }
+        if (request.method === "POST" && !id) {
+          const saved = registry.saveTencentCredential(await readJson(request, config.bodyLimitBytes));
+          send(response, 201, saved);
+          return;
+        }
+        if (request.method === "PUT" && id && !action) {
+          send(response, 200, registry.saveTencentCredential(await readJson(request, config.bodyLimitBytes), id));
+          return;
+        }
+        if (request.method === "DELETE" && id && !action) {
+          registry.deleteTencentCredential(id);
+          send(response, 200, { ok: true });
+          return;
+        }
+      }
+
+      const agentMatch = url.pathname.match(/^\/api\/admin\/agents(?:\/([^/]+))?(?:\/(test|reset-sessions))?$/);
       if (agentMatch) {
         const [, id, action] = agentMatch;
         if (request.method === "POST" && action === "test" && id) {
@@ -193,6 +241,10 @@ function createServer(options = {}) {
           if (!agent) throw new Error("CloudAgent configuration not found");
           const internalAgentId = await new CloudAgentAdapter({ ...agent, agentName: agent.name }).resolveAgentInternalId();
           send(response, 200, { ok: true, internalAgentId });
+          return;
+        }
+        if (request.method === "POST" && action === "reset-sessions" && id) {
+          send(response, 200, registry.resetAgentSessions(id));
           return;
         }
         if (request.method === "POST" && !id) {
@@ -232,6 +284,35 @@ function createServer(options = {}) {
           registry.deleteBot(id);
           botManager.sync();
           send(response, 200, { ok: true });
+          return;
+        }
+      }
+
+      const pairingMatch = url.pathname.match(/^\/api\/admin\/wecom-pairing(?:\/([^/]+))?(?:\/(complete))?$/);
+      if (pairingMatch) {
+        const [, id, action] = pairingMatch;
+        if (request.method === "POST" && !id) {
+          send(response, 201, await wecomPairing.createSession());
+          return;
+        }
+        if (request.method === "GET" && id && !action) {
+          send(response, 200, await wecomPairing.getSessionStatus(id));
+          return;
+        }
+        if (request.method === "POST" && id && action === "complete") {
+          const input = await readJson(request, config.bodyLimitBytes);
+          const credentials = wecomPairing.completeSession(id);
+          const saved = registry.saveBot({
+            name: input.name || credentials.botName || "扫码创建的机器人",
+            botId: credentials.botId,
+            secret: credentials.secret,
+            cloudAgentId: input.cloudAgentId,
+            groupSessionScope: input.groupSessionScope,
+            welcomeText: input.welcomeText,
+            placeholder: input.placeholder,
+          });
+          botManager.sync();
+          send(response, 201, saved);
           return;
         }
       }
@@ -289,7 +370,7 @@ function createServer(options = {}) {
       send(response, 404, { error: "Not found" });
     } catch (error) {
       console.error("http_request_failed", { method: request.method, path: url.pathname, message: safeError(error) });
-      const status = /not found/i.test(safeError(error)) ? 404 : /required|invalid|must|too long|still paired|still used|not bound|unavailable|UNIQUE constraint/i.test(safeError(error)) ? 400 : 500;
+      const status = /not found/i.test(safeError(error)) ? 404 : /required|invalid|must|too long|still paired|still used|not bound|unavailable|expired|UNIQUE constraint/i.test(safeError(error)) ? 400 : 500;
       send(response, status, { error: status === 500 ? "Internal server error" : safeError(error) });
     }
   });

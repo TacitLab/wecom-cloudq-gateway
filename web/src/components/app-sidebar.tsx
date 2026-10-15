@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BellRing, Bot, KeyRound } from 'lucide-react'
+import { ArrowLeftRight, BellRing, Bot, CloudCog, KeyRound } from 'lucide-react'
 
 import {
   Sidebar,
@@ -30,7 +30,10 @@ const NAV_GROUPS: Array<{
   },
   {
     label: '凭证管理',
-    items: [{ key: 'keys', label: '企业 API Key', icon: KeyRound }],
+    items: [
+      { key: 'keys', label: '企业 API Key', icon: KeyRound },
+      { key: 'tencent-credentials', label: '腾讯云凭证', icon: CloudCog },
+    ],
   },
 ]
 

@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { validateRegion } = require("./alert-config");
 const { db } = require("./database");
 const { runtimeConfig } = require("./config");
 
@@ -34,6 +35,8 @@ function integrationFromRow(row, { secrets = false } = {}) {
     botConfigId: row.bot_config_id,
     botName: row.bot_name,
     cloudAgentName: row.cloud_agent_name,
+    credentialId: row.credential_id || null,
+    credentialName: row.credential_name || null,
     ...(secrets ? { secretId: row.secret_id, secretKey: row.secret_key } : {
       secretIdConfigured: Boolean(row.secret_id),
       secretKeyConfigured: Boolean(row.secret_key),
@@ -60,10 +63,11 @@ function integrationFromRow(row, { secrets = false } = {}) {
 }
 
 const INTEGRATION_SELECT = `
-  SELECT i.*, b.name AS bot_name, a.name AS cloud_agent_name
+  SELECT i.*, b.name AS bot_name, a.name AS cloud_agent_name, c.name AS credential_name
   FROM alert_integrations i
   JOIN wecom_bots b ON b.id=i.bot_config_id
   JOIN cloud_agents a ON a.id=b.cloud_agent_id
+  LEFT JOIN tencent_credentials c ON c.id=i.credential_id
 `;
 
 function listIntegrations(options) {
@@ -81,16 +85,21 @@ function saveIntegration(input, id) {
   if (id && !existing) throw new Error("Alert integration not found");
   const botConfigId = text(input.botConfigId, "Bot", { max: 100 });
   if (!database.prepare("SELECT id FROM wecom_bots WHERE id=?").get(botConfigId)) throw new Error("Selected Bot not found");
-  const secretId = text(input.secretId, "Tencent Cloud SecretId", { required: !existing, max: 256 });
-  const secretKey = text(input.secretKey, "Tencent Cloud SecretKey", { required: !existing, max: 256 });
+  const credentialId = text(input.credentialId, "Tencent Cloud credential", { required: !existing, max: 100 })
+    || existing.credential_id;
+  const credential = credentialId
+    ? database.prepare("SELECT * FROM tencent_credentials WHERE id=?").get(credentialId)
+    : undefined;
+  if (!credential) throw new Error("Selected Tencent Cloud credential not found");
   const now = Date.now();
   const record = {
     id: existing?.id || crypto.randomUUID(),
     name: text(input.name, "Integration name", { max: 100 }),
     botConfigId,
-    secretId: secretId || existing.secret_id,
-    secretKey: secretKey || existing.secret_key,
-    region: text(input.region, "Region", { required: false, max: 100 }) || null,
+    credentialId,
+    secretId: credential.secret_id,
+    secretKey: credential.secret_key,
+    region: validateRegion(input.region),
     monitorType: text(input.monitorType || "MT_QCE", "Monitor type", { max: 50 }),
     namespace: text(input.namespace || "cvm_device", "Namespace", { max: 100 }),
     policyIdsJson: JSON.stringify(parsePolicyIds(input.policyIds)),
@@ -104,16 +113,16 @@ function saveIntegration(input, id) {
   };
   database.prepare(`
     INSERT INTO alert_integrations
-      (id,name,bot_config_id,secret_id,secret_key,region,monitor_type,namespace,policy_ids_json,poll_interval_seconds,initial_lookback_seconds,overlap_seconds,prompt_template,include_recovery,enabled,bind_code,target_chat_id,target_chat_name,last_attempt_at,last_success_at,last_error,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      (id,name,bot_config_id,credential_id,secret_id,secret_key,region,monitor_type,namespace,policy_ids_json,poll_interval_seconds,initial_lookback_seconds,overlap_seconds,prompt_template,include_recovery,enabled,bind_code,target_chat_id,target_chat_name,last_attempt_at,last_success_at,last_error,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
-      name=excluded.name,bot_config_id=excluded.bot_config_id,secret_id=excluded.secret_id,secret_key=excluded.secret_key,
+      name=excluded.name,bot_config_id=excluded.bot_config_id,credential_id=excluded.credential_id,secret_id=excluded.secret_id,secret_key=excluded.secret_key,
       region=excluded.region,monitor_type=excluded.monitor_type,namespace=excluded.namespace,policy_ids_json=excluded.policy_ids_json,
       poll_interval_seconds=excluded.poll_interval_seconds,initial_lookback_seconds=excluded.initial_lookback_seconds,
       overlap_seconds=excluded.overlap_seconds,prompt_template=excluded.prompt_template,include_recovery=excluded.include_recovery,
       enabled=excluded.enabled,updated_at=excluded.updated_at
   `).run(
-    record.id, record.name, record.botConfigId, record.secretId, record.secretKey, record.region,
+    record.id, record.name, record.botConfigId, record.credentialId, record.secretId, record.secretKey, record.region,
     record.monitorType, record.namespace, record.policyIdsJson, record.pollIntervalSeconds,
     record.initialLookbackSeconds, record.overlapSeconds, record.promptTemplate, record.includeRecovery,
     record.enabled, record.bindCode, existing?.target_chat_id || null, existing?.target_chat_name || null,

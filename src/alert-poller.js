@@ -16,11 +16,14 @@ function queryFor(integration, page, startTime, endTime) {
     Order: "ASC",
     StartTime: startTime,
     EndTime: endTime,
-    MonitorTypes: [integration.monitorType],
-    Namespaces: [{ MonitorType: integration.monitorType, Namespace: integration.namespace }],
     AlarmStatus: integration.includeRecovery ? ["ALARM", "OK"] : ["ALARM"],
   };
-  if (integration.policyIds.length) query.PolicyIds = integration.policyIds;
+  if (integration.policyIds.length) {
+    query.PolicyIds = integration.policyIds;
+  } else {
+    query.MonitorTypes = [integration.monitorType];
+    query.Namespaces = [{ MonitorType: integration.monitorType, Namespace: integration.namespace }];
+  }
   return query;
 }
 

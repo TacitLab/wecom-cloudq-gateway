@@ -144,20 +144,22 @@ npm start
 1. 在 WorkBuddy 创建并发布企业智能体，并在企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）取得企业 API Key。
 2. 在管理页“企业 API Key”区域新增 Key 配置（支持多个）；点击“测试”确认该 Key 能看到企业 Agent。注意：个人 PAT（`pt_` 开头）看不到企业智能体。
 3. 在管理页“CloudAgent”区域新增配置：选择企业 API Key → 点击“拉取 Agent 列表”→ 选择一个 Agent 绑定；点击“测试”确认连通。也可以切换为手动输入 Agent ID 和 API Key。
-4. 在企业微信管理端把机器人连接方式改为“使用长连接”，取得 Bot ID 和 Secret。
-5. 在管理页“Bot–Agent 配对”区域新增配对，填写 Bot ID/Secret，并选择唯一绑定的 CloudAgent。
-6. 保存后观察连接状态变为 `authenticated`。
+4. 在管理页“企业微信 Bot 配对”区域新增配对，二选一：
+   - **扫码创建（推荐）**：选择“扫码创建”标签页，生成二维码后用企业微信扫码确认“一键创建机器人”，网关自动取得 Bot ID/Secret 并完成配对（Secret 只保存在服务端）。扫码来源标识通过 `WECOM_PAIRING_SOURCE` 配置，未设置时回退 `wecom_cli_external`，生产环境应向企业微信申请正式来源标识。
+   - **绑定已有机器人**：在企业微信管理端把机器人连接方式改为“使用长连接”，取得 Bot ID 和 Secret 后手动填写。
+5. 保存后观察连接状态变为 `authenticated`。
 7. 在企业微信发送“你好”，再追问“我刚才问了什么”，确认复用同一 Session。
 8. 发送 `/new`，确认创建新 Session。
 
 ## 告警 RCA 配置
 
 1. 确认用于 RCA 的 CloudAgent 已绑定 CloudQ 等诊断技能，并使用最小权限凭据。
-2. 在左侧“告警 RCA”新增配置，选择一个已有 Bot，填写腾讯云 `SecretId` / `SecretKey`、Namespace 和可选的策略 ID。
-3. 保存后，页面会显示一次性绑定指令，例如 `/bind-alert A7K92F`。
-4. 把所选 Bot 加入固定告警群，并在群里发送该绑定指令；Bot 会确认绑定并记录群聊 `chatid`。
-5. 回到页面点击“测试推送”，确认长连接可以主动向该群发送 Markdown。
-6. 点击“立即轮询”验证腾讯云 API 权限。之后服务按配置间隔自动轮询。
+2. 在左侧“腾讯云凭证”录入并测试 `SecretId` / `SecretKey`；创建告警 RCA 配置必须先有可用凭证。
+3. 在“告警 RCA”新增配置，选择已有 Bot、腾讯云凭证和地域。系统会通过 `DescribeAlarmPolicies` 拉取该地域全部告警策略，可按名称或 ID 多选；不选具体策略时使用高级配置中的 Monitor Type / Namespace 过滤。
+4. 保存后，页面会显示一次性绑定指令，例如 `/bind-alert A7K92F`。
+5. 把所选 Bot 加入固定告警群，并在群里发送该绑定指令；Bot 会确认绑定并记录群聊 `chatid`。
+6. 回到页面点击“测试推送”，确认长连接可以主动向该群发送 Markdown。
+7. 点击“立即轮询”验证腾讯云 API 权限。之后服务按配置间隔自动轮询。
 
 轮询使用腾讯云 `DescribeAlarmHistories` API。默认每 60 秒执行一次，并重叠查询最近 5 分钟；SQLite 使用 `配置 ID + AlarmId + AlarmStatus` 去重，所以重叠窗口不会重复执行 RCA。首次启用默认只回溯 10 分钟，避免一次性处理大量旧告警。
 

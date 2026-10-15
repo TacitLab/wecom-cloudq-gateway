@@ -40,12 +40,30 @@ export interface ApiKeyConfig {
   createdAt: string
 }
 
+export interface TencentCredentialConfig {
+  id: string
+  name: string
+  secretIdMasked?: string
+  createdAt: string
+}
+
+export interface TencentAlarmPolicy {
+  id: string
+  name: string
+  namespace: string
+  namespaceName: string
+  monitorType: string
+  enabled: boolean
+}
+
 export interface AlertIntegration {
   id: string
   name: string
   botConfigId: string
   botName: string
   cloudAgentName: string
+  credentialId?: string | null
+  credentialName?: string | null
   region?: string
   monitorType: string
   namespace: string
@@ -85,6 +103,7 @@ export interface AdminState {
   bots: BotConfig[]
   agents: AgentConfig[]
   apiKeys: ApiKeyConfig[]
+  tencentCredentials: TencentCredentialConfig[]
   connections: Record<string, ConnectionStatus>
   alertIntegrations: AlertIntegration[]
   alertJobs: AlertJob[]

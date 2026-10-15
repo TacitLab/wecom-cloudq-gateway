@@ -65,6 +65,10 @@ class TencentMonitorClient {
   describeAlarmHistories(params) {
     return this.request("DescribeAlarmHistories", params);
   }
+
+  describeAlarmPolicies(params) {
+    return this.request("DescribeAlarmPolicies", params);
+  }
 }
 
 module.exports = { TencentMonitorClient, authorization };

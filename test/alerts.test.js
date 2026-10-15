@@ -14,6 +14,7 @@ const { handleMessage } = require("../src/gateway");
 const { buildConversationKey } = require("../src/conversation");
 const taskControl = require("../src/task-control");
 const { TencentMonitorClient } = require("../src/monitor-client");
+const { listAlarmPolicies } = require("../src/alert-config");
 const { pollIntegration, queryFor } = require("../src/alert-poller");
 const alertWorker = require("../src/alert-worker");
 const { splitUtf8 } = require("../src/alert-worker");
@@ -24,20 +25,27 @@ function createPair() {
   return { agent, bot };
 }
 
+function createCredential(input = {}) {
+  return registry.saveTencentCredential({ name: "TC cred", secretId: "AKIDEXAMPLE", secretKey: "SECRETEXAMPLE", ...input });
+}
+
 test.beforeEach(() => {
-  db().exec("DELETE FROM alert_jobs; DELETE FROM alert_integrations; DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents;");
+  db().exec("DELETE FROM alert_jobs; DELETE FROM alert_integrations; DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents; DELETE FROM tencent_credentials;");
 });
 
 test("alert integration hides credentials, binds one group, and deduplicates AlarmId", () => {
   const { bot } = createPair();
+  const credential = createCredential();
   const integration = alertStore.saveIntegration({
     name: "Production alarms",
     botConfigId: bot.id,
-    secretId: "AKIDEXAMPLE",
-    secretKey: "SECRETEXAMPLE",
+    credentialId: credential.id,
+    region: "ap-guangzhou",
     namespace: "cvm_device",
   });
   assert.equal(integration.secretId, undefined);
+  assert.equal(integration.credentialId, credential.id);
+  assert.equal(integration.credentialName, credential.name);
   assert.equal(alertStore.getIntegration(integration.id, { secrets: true }).secretKey, "SECRETEXAMPLE");
   const bound = alertStore.bindChat(integration.bindCode, bot.id, "chat-production");
   assert.equal(bound.targetChatId, "chat-production");
@@ -47,10 +55,29 @@ test("alert integration hides credentials, binds one group, and deduplicates Ala
   assert.equal(alertStore.nextJob().status, "analyzing");
 });
 
+test("rotating a tencent credential syncs the inline AK/SK of referencing integrations", () => {
+  const { bot } = createPair();
+  const credential = createCredential();
+  const integration = alertStore.saveIntegration({
+    name: "Rotation", botConfigId: bot.id, credentialId: credential.id, region: "ap-guangzhou",
+  });
+  registry.saveTencentCredential({ name: "TC cred", secretId: "AKIDNEW", secretKey: "SECRETNEW" }, credential.id);
+  const reloaded = alertStore.getIntegration(integration.id, { secrets: true });
+  assert.equal(reloaded.secretId, "AKIDNEW");
+  assert.equal(reloaded.secretKey, "SECRETNEW");
+});
+
+test("a tencent credential referenced by an alert integration cannot be deleted", () => {
+  const { bot } = createPair();
+  const credential = createCredential();
+  alertStore.saveIntegration({ name: "Blocking", botConfigId: bot.id, credentialId: credential.id, region: "ap-guangzhou" });
+  assert.throws(() => registry.deleteTencentCredential(credential.id), /still used/);
+});
+
 test("alert polling can be paused and resumed without losing its group binding", () => {
   const { bot } = createPair();
   const saved = alertStore.saveIntegration({
-    name: "Pausable polling", botConfigId: bot.id, secretId: "sid", secretKey: "skey",
+    name: "Pausable polling", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou",
   });
   alertStore.bindChat(saved.bindCode, bot.id, "chat-pausable");
   assert.equal(alertStore.dueIntegrations().length, 1);
@@ -68,7 +95,7 @@ test("alert polling can be paused and resumed without losing its group binding",
 
 test("group bind command records chatid instead of sending the command to CloudAgent", async () => {
   const { bot } = createPair();
-  const integration = alertStore.saveIntegration({ name: "Bind me", botConfigId: bot.id, secretId: "sid", secretKey: "skey" });
+  const integration = alertStore.saveIntegration({ name: "Bind me", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou" });
   const replies = [];
   const client = { replyStream: async (...args) => { replies.push(args); } };
   await handleMessage(bot.id, client, {
@@ -133,11 +160,48 @@ test("Tencent Monitor client signs DescribeAlarmHistories and sends expected fil
   assert.equal(captured.options.headers["X-TC-Action"], "DescribeAlarmHistories");
   assert.deepEqual(JSON.parse(captured.options.body).AlarmStatus, ["ALARM"]);
   assert.deepEqual(JSON.parse(captured.options.body).PolicyIds, ["policy-1"]);
+  assert.equal(JSON.parse(captured.options.body).Namespaces, undefined);
+});
+
+test("alarm policy discovery pages through all policies and returns display metadata", async () => {
+  const queries = [];
+  const client = {
+    describeAlarmPolicies: async (query) => {
+      queries.push(query);
+      if (query.PageNumber === 1) return {
+        TotalCount: 2,
+        Policies: [{
+          PolicyId: "policy-1", PolicyName: "CVM CPU", Namespace: "cvm_device",
+          NamespaceShowName: "云服务器-基础监控", MonitorType: "MT_QCE", Enable: 1,
+        }],
+      };
+      return {
+        TotalCount: 2,
+        Policies: [{
+          PolicyId: "policy-2", PolicyName: "Redis", Namespace: "redis",
+          NamespaceShowName: "云数据库 Redis", MonitorType: "MT_QCE", Enable: 0,
+        }],
+      };
+    },
+  };
+  const items = await listAlarmPolicies({}, "ap-guangzhou", { client });
+  assert.equal(queries.length, 2);
+  assert.deepEqual(items.map((item) => [item.id, item.name, item.namespaceName, item.enabled]), [
+    ["policy-1", "CVM CPU", "云服务器-基础监控", true],
+    ["policy-2", "Redis", "云数据库 Redis", false],
+  ]);
+});
+
+test("alert configuration requires a credential and region", () => {
+  const { bot } = createPair();
+  assert.throws(() => alertStore.saveIntegration({
+    name: "Missing region", botConfigId: bot.id, credentialId: createCredential().id,
+  }), /Region is required/);
 });
 
 test("poller pages through alarm history and advances its cursor after enqueue", async () => {
   const { bot } = createPair();
-  const saved = alertStore.saveIntegration({ name: "Polling", botConfigId: bot.id, secretId: "sid", secretKey: "skey" });
+  const saved = alertStore.saveIntegration({ name: "Polling", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou" });
   alertStore.bindChat(saved.bindCode, bot.id, "chat-polling");
   const integration = alertStore.getIntegration(saved.id, { secrets: true });
   const queries = [];
