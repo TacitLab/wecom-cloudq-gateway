@@ -39,7 +39,8 @@ async function analyze(job, integration) {
     const conversation = await adapter.createConversation(`alert:${integration.id}:${job.eventKey}`);
     let answer = "";
     const response = await adapter.sendMessage(conversation,
-      withDiagnosticCredential(prompt, credential, integration.region), (delta) => { answer += delta; });
+      withDiagnosticCredential(prompt, credential, integration.region), (delta) => { answer += delta; },
+      { showThinking: pair.bot.showThinking });
     const finalAnswer = redact(finalizeAgentText(answer || "诊断任务已完成，但 Agent 未返回文本结果。"));
     const recordedPrompt = redact(credential ? `${prompt}\n\n${INJECTED_CREDENTIAL_NOTICE}` : prompt);
     alertStore.updateJob(job.id, {

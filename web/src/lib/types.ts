@@ -9,6 +9,7 @@ export interface BotConfig {
   welcomeText: string
   placeholder: string
   enabled: boolean
+  showThinking: boolean
 }
 
 export interface ConnectionStatus {

@@ -93,6 +93,30 @@ function createAgentTextFormatter(onDelta) {
   };
 }
 
+function createFinalAgentTextCollector() {
+  let text = "";
+  let lastMessageId;
+  return {
+    onNotification(notification) {
+      const update = notification?.update;
+      // Text before a tool call describes work in progress. Buffer the last
+      // Agent message until the turn ends so none of that text is pushed.
+      if (update?.sessionUpdate === "tool_call") {
+        text = "";
+        lastMessageId = undefined;
+        return;
+      }
+      if (update?.sessionUpdate !== "agent_message_chunk" || update.content?.type !== "text") return;
+      if (!update.content.text) return;
+      const messageId = update.messageId == null ? undefined : String(update.messageId);
+      if (messageId && lastMessageId && messageId !== lastMessageId) text = "";
+      text += update.content.text;
+      if (messageId) lastMessageId = messageId;
+    },
+    getText: () => text,
+  };
+}
+
 class CloudAgentAdapter {
   constructor(config, client) {
     this.config = config;
@@ -241,14 +265,17 @@ class CloudAgentAdapter {
         signal: options.signal,
       });
 
-      const onNotification = createAgentTextFormatter(onDelta);
+      const finalText = options.showThinking === false ? createFinalAgentTextCollector() : undefined;
+      const onNotification = finalText ? finalText.onNotification : createAgentTextFormatter(onDelta);
 
-      return await session.prompt(String(content), {
+      const response = await session.prompt(String(content), {
         timeoutMs: this.config.promptTimeoutMs,
-        includeThinking: this.config.includeThinking,
+        includeThinking: options.showThinking === false ? false : this.config.includeThinking,
         onChunk: onNotification,
         signal: options.signal,
       });
+      if (finalText?.getText()) onDelta(finalText.getText());
+      return response;
     } catch (error) {
       if (isConversationUnavailable(error)) {
         throw new ConversationUnavailableError(

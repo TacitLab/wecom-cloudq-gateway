@@ -116,6 +116,7 @@ function botFromRow(row, { secrets = false } = {}) {
     cloudAgentId: row.cloud_agent_id,
     cloudAgentName: row.cloud_agent_name,
     enabled: Boolean(row.enabled),
+    showThinking: Boolean(row.show_thinking),
     welcomeText: row.welcome_text,
     placeholder: row.placeholder,
     groupSessionScope: row.group_session_scope,
@@ -320,16 +321,17 @@ function saveBot(input, id) {
     secretStored: secret || existing.secret_cipher,
     cloudAgentId: agentId,
     enabled: input.enabled === false ? 0 : 1,
+    showThinking: input.showThinking === undefined ? (existing?.show_thinking ?? 1) : (input.showThinking === false ? 0 : 1),
     welcomeText: text(input.welcomeText || "你好，我是企业智能助手。发送 /new 可以开始一个新会话。", "Welcome text", { max: 2000 }),
     placeholder: text(input.placeholder || "正在处理…", "Placeholder", { max: 500 }),
     groupSessionScope: input.groupSessionScope === "user" ? "user" : "chat",
     wsUrl: text(input.wsUrl, "WebSocket URL", { required: false, max: 500 }) || null,
   };
   database.prepare(`
-    INSERT INTO wecom_bots (id,name,bot_id,secret_cipher,cloud_agent_id,enabled,welcome_text,placeholder,group_session_scope,ws_url,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,bot_id=excluded.bot_id,secret_cipher=excluded.secret_cipher,cloud_agent_id=excluded.cloud_agent_id,enabled=excluded.enabled,welcome_text=excluded.welcome_text,placeholder=excluded.placeholder,group_session_scope=excluded.group_session_scope,ws_url=excluded.ws_url,updated_at=excluded.updated_at
-  `).run(record.id, record.name, record.botId, record.secretStored, record.cloudAgentId, record.enabled, record.welcomeText, record.placeholder, record.groupSessionScope, record.wsUrl, existing?.created_at || now, now);
+    INSERT INTO wecom_bots (id,name,bot_id,secret_cipher,cloud_agent_id,enabled,show_thinking,welcome_text,placeholder,group_session_scope,ws_url,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,bot_id=excluded.bot_id,secret_cipher=excluded.secret_cipher,cloud_agent_id=excluded.cloud_agent_id,enabled=excluded.enabled,show_thinking=excluded.show_thinking,welcome_text=excluded.welcome_text,placeholder=excluded.placeholder,group_session_scope=excluded.group_session_scope,ws_url=excluded.ws_url,updated_at=excluded.updated_at
+  `).run(record.id, record.name, record.botId, record.secretStored, record.cloudAgentId, record.enabled, record.showThinking, record.welcomeText, record.placeholder, record.groupSessionScope, record.wsUrl, existing?.created_at || now, now);
   return getBot(record.id);
 }
 

@@ -260,6 +260,63 @@ test("formats separate Agent messages as paragraphs without duplicating newlines
   );
 });
 
+function textChunk(text, messageId) {
+  return { update: { sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text } } };
+}
+
+for (const [name, notifications, expected] of [
+  ["tool calls with message IDs", [textChunk("开始查询", "one"), { update: { sessionUpdate: "tool_call" } },
+    textChunk("继续检查", "two"), { update: { sessionUpdate: "tool_call" } },
+    textChunk("最终", "three"), textChunk("结果", "three")], "最终结果"],
+  ["tool calls without message IDs", [textChunk("开始查询"), { update: { sessionUpdate: "tool_call" } },
+    textChunk("最终"), textChunk("结果")], "最终结果"],
+  ["distinct messages without tools", [textChunk("正在分析", "one"), textChunk("最终结果", "two")], "最终结果"],
+  ["a direct answer", [textChunk("直接"), textChunk("回答")], "直接回答"],
+  ["no final text after tools", [textChunk("开始查询"), { update: { sessionUpdate: "tool_call" } }], ""],
+]) {
+  test(`hides progress and emits only final text after completion: ${name}`, async () => {
+    const deltas = [];
+    const session = {
+      async connect() {},
+      async disconnect() {},
+      async prompt(_input, options) {
+        assert.equal(options.includeThinking, false);
+        options.onChunk({ update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "隐藏思考" } } });
+        for (const notification of notifications) options.onChunk(notification);
+        assert.deepEqual(deltas, []);
+        return { stopReason: "end_turn" };
+      },
+    };
+    const adapter = new CloudAgentAdapter(config({ includeThinking: true }), {
+      runtimes: { get: async () => ({ sessions: { get: async () => session } }) },
+    });
+    const response = await adapter.sendMessage({ runtimeId: "runtime", sessionId: "session" }, "hi",
+      (delta) => deltas.push(delta), { showThinking: false });
+    assert.deepEqual(deltas, expected ? [expected] : []);
+    assert.equal(response.stopReason, "end_turn");
+  });
+}
+
+test("does not expose buffered progress when a hidden-thinking turn fails", async () => {
+  const deltas = [];
+  let disconnected = false;
+  const session = {
+    async connect() {},
+    async disconnect() { disconnected = true; },
+    async prompt(_input, options) {
+      options.onChunk(textChunk("正在分析"));
+      throw new Error("cancelled");
+    },
+  };
+  const adapter = new CloudAgentAdapter(config(), {
+    runtimes: { get: async () => ({ sessions: { get: async () => session } }) },
+  });
+  await assert.rejects(adapter.sendMessage({ runtimeId: "runtime", sessionId: "session" }, "hi",
+    (delta) => deltas.push(delta), { showThinking: false }), /cancelled/);
+  assert.deepEqual(deltas, []);
+  assert.equal(disconnected, true);
+});
+
 test("uses one neutral prefix for every section and closes orphaned colons", () => {
   const text = [
     "💬 好的，我来查询资源：",

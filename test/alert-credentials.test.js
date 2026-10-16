@@ -111,6 +111,20 @@ test("only runtime requests contain current diagnosis credentials; history, repl
   });
 });
 
+test("alert diagnosis uses the paired Bot's thinking visibility", async () => {
+  const { input, bot } = fixture();
+  registry.saveBot({ ...bot, secret: "", showThinking: false }, bot.id);
+  queue(alertStore.saveIntegration(input));
+  await stubAgent(async (_conversation, _prompt, onDelta, options) => {
+    assert.equal(options.showThinking, false);
+    onDelta("最终诊断结果");
+  }, async (pushed) => {
+    await alertWorker.processPending();
+    assert.equal(alertStore.listJobs()[0].answer, "最终诊断结果");
+    assert.equal(pushed[0][2], "🚨 **RCA**\n\n最终诊断结果");
+  });
+});
+
 test("SDK exceptions containing the runtime prompt are scrubbed before job errors and local logs", async () => {
   const { input, diagnostic } = fixture();
   const saved = alertStore.saveIntegration({ ...input, diagnosticCredentialId: diagnostic.id });

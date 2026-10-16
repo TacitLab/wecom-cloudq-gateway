@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -34,6 +35,7 @@ export function BotScanForm({
 }) {
   const [name, setName] = useState('智能助手')
   const [cloudAgentId, setCloudAgentId] = useState('')
+  const [showThinking, setShowThinking] = useState(true)
   const [session, setSession] = useState<ScanSession | null>(null)
   const [status, setStatus] = useState<ScanStatus>('pending')
   const [pairedBotId, setPairedBotId] = useState('')
@@ -97,7 +99,7 @@ export function BotScanForm({
       await toastTask(
         api(`/api/admin/wecom-pairing/${session.pairingId}/complete`, {
           method: 'POST',
-          body: JSON.stringify({ name, cloudAgentId }),
+          body: JSON.stringify({ name, cloudAgentId, showThinking }),
         }),
         '正在完成配对…',
         'Bot 配对已创建，连接正在同步',
@@ -135,6 +137,12 @@ export function BotScanForm({
           </Select>
         </div>
       </div>
+
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <Checkbox checked={showThinking} onCheckedChange={(v) => setShowThinking(v === true)} />
+        显示思考过程
+        <span className="text-xs font-normal text-muted-foreground">取消勾选后，仅推送最终回复</span>
+      </label>
 
       {!session || status === 'expired' || status === 'failed' ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-sm text-muted-foreground">

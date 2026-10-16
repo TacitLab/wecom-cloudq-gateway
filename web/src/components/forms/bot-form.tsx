@@ -42,6 +42,7 @@ export function BotForm({
   const [welcomeText, setWelcomeText] = useState('')
   const [placeholder, setPlaceholder] = useState('正在处理…')
   const [enabled, setEnabled] = useState(true)
+  const [showThinking, setShowThinking] = useState(true)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export function BotForm({
     setWelcomeText(record?.welcomeText ?? '你好，我是企业智能助手。发送 /new 可以开始一个新会话。')
     setPlaceholder(record?.placeholder ?? '正在处理…')
     setEnabled(record ? Boolean(record.enabled) : true)
+    setShowThinking(record?.showThinking ?? true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record])
 
@@ -76,6 +78,7 @@ export function BotForm({
             welcomeText,
             placeholder,
             enabled,
+            showThinking,
           }),
         }),
         '保存并同步连接中…',
@@ -150,6 +153,11 @@ export function BotForm({
         <Label>处理中提示</Label>
         <Input value={placeholder} onChange={(e) => setPlaceholder(e.target.value)} />
       </div>
+      <label className="col-span-2 flex items-center gap-2 text-sm font-medium">
+        <Checkbox checked={showThinking} onCheckedChange={(v) => setShowThinking(v === true)} />
+        显示思考过程
+        <span className="text-xs font-normal text-muted-foreground">取消勾选后，仅推送最终回复</span>
+      </label>
       <label className="col-span-2 flex items-center gap-2 text-sm font-medium">
         <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
         启用该 Bot 长连接

@@ -68,6 +68,18 @@ test("cannot delete an Agent while a Bot is paired to it", () => {
   assert.throws(() => registry.deleteAgent(agent.id), /still paired/);
 });
 
+test("Bot thinking visibility defaults on, persists per Bot, and survives edits that omit it", () => {
+  const agent = registry.saveAgent({ name: "Agent", agentId: "agent_VISIBILITY", apiKey: "pt_one" });
+  const input = { name: "Bot", botId: "bot-visible", secret: "secret", cloudAgentId: agent.id };
+  const visible = registry.saveBot(input);
+  assert.equal(visible.showThinking, true);
+  const hidden = registry.saveBot({ ...input, botId: "bot-hidden", showThinking: false });
+  assert.equal(registry.pairForBot(hidden.id).bot.showThinking, false);
+  assert.equal(registry.listBots().find((bot) => bot.id === visible.id).showThinking, true);
+  assert.equal(registry.saveBot({ ...input, botId: hidden.botId }, hidden.id).showThinking, false);
+  assert.equal(registry.saveBot({ ...input, botId: hidden.botId, showThinking: true }, hidden.id).showThinking, true);
+});
+
 test("stores API keys without exposing secrets and resolves agent credentials by reference", () => {
   const key = registry.saveKey({ name: "Enterprise Key", apiKey: "corp_secret_value" });
   assert.equal(registry.listKeys()[0].apiKey, undefined);

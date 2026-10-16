@@ -319,6 +319,7 @@ function createServer(options = {}) {
             groupSessionScope: input.groupSessionScope,
             welcomeText: input.welcomeText,
             placeholder: input.placeholder,
+            showThinking: input.showThinking,
           });
           botManager.sync();
           send(response, 201, saved);

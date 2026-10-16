@@ -9,6 +9,7 @@
 - 同一个 CloudAgent 配置可以被多个 Bot 复用。
 - 管理员在 Web 页面修改配对后，新消息立即进入新 Agent。
 - 配对或 Agent 版本会进入会话键，换绑不会误用旧 Agent 的 Session。
+- Bot 配对中的“显示思考过程”默认勾选（已有 Bot 也保持开启）。取消勾选后，对话和告警 RCA 只推送最终回复，处理中保留占位提示，不展示 Agent 执行过程。
 
 用户不需要选择 Agent。单聊默认按 `Bot + 用户` 复用 Session，群聊默认按 `Bot + 群` 复用 Session；只有发送严格匹配的 `/new` 才创建新 Runtime/Session。群聊中企业微信回调可能保留 `@Bot` 前缀，`@Bot /new` 会被网关归一化为同一指令。
 

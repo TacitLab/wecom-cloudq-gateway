@@ -61,14 +61,14 @@ async function handleTask(task, options = {}) {
     response = await adapter.sendMessage(conversation, task.content, (delta) => {
       answer += delta;
       const now = Date.now();
-      if (now - lastFlushAt >= runtimeConfig().streamFlushIntervalMs) {
+      if (bot.showThinking !== false && now - lastFlushAt >= runtimeConfig().streamFlushIntervalMs) {
         lastFlushAt = now;
         const snapshot = answer;
         sendChain = sendChain.then(() => sendUpdate(task, snapshot, false)).catch((error) => {
           console.error("wecom_stream_update_failed", { taskId: task.id, message: safeError(error) });
         });
       }
-    }, options);
+    }, { ...options, showThinking: bot.showThinking });
   } finally {
     await sendChain;
   }

@@ -54,6 +54,7 @@ function db() {
       secret_cipher TEXT NOT NULL,
       cloud_agent_id TEXT NOT NULL REFERENCES cloud_agents(id) ON DELETE RESTRICT,
       enabled INTEGER NOT NULL DEFAULT 1,
+      show_thinking INTEGER NOT NULL DEFAULT 1,
       welcome_text TEXT NOT NULL,
       placeholder TEXT NOT NULL,
       group_session_scope TEXT NOT NULL DEFAULT 'chat',
@@ -160,6 +161,10 @@ function db() {
   const agentColumns = database.prepare("PRAGMA table_info(cloud_agents)").all().map((column) => column.name);
   if (!agentColumns.includes("api_key_config_id")) {
     database.exec("ALTER TABLE cloud_agents ADD COLUMN api_key_config_id TEXT REFERENCES api_keys(id) ON DELETE RESTRICT");
+  }
+  const botColumns = database.prepare("PRAGMA table_info(wecom_bots)").all().map((column) => column.name);
+  if (!botColumns.includes("show_thinking")) {
+    database.exec("ALTER TABLE wecom_bots ADD COLUMN show_thinking INTEGER NOT NULL DEFAULT 1");
   }
   const alertColumns = database.prepare("PRAGMA table_info(alert_integrations)").all().map((column) => column.name);
   if (!alertColumns.includes("credential_id")) {
