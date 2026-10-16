@@ -121,7 +121,7 @@ test("alert diagnosis uses the paired Bot's thinking visibility", async () => {
   }, async (pushed) => {
     await alertWorker.processPending();
     assert.equal(alertStore.listJobs()[0].answer, "最终诊断结果");
-    assert.equal(pushed[0][2], "🚨 **RCA**\n\n最终诊断结果");
+    assert.equal(pushed[0][2], "最终诊断结果");
   });
 });
 

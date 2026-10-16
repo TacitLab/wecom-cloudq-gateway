@@ -70,7 +70,7 @@ for (const showThinking of [true, false]) {
       assert.equal(prompts, 2);
       assert.equal(messages.length, 1);
       assert.equal(messages[0].chatId, f.chatId);
-      assert.match(messages[0].message.markdown.content, /🚨 \*\*APM 诊断 Demo\*\*/);
+      assert.equal(messages[0].message.markdown.content.startsWith(showThinking ? "💬 报告已生成" : "报告已生成"), true);
       assert.doesNotMatch(messages[0].message.markdown.content, /<html>|证据链与处置建议/);
       assert.deepEqual(files[0], { buffer: Buffer.from(html), options: { type: "file", filename: "根因报告.html" } });
       const job = alertStore.listJobs().find((job) => job.id === f.jobId);

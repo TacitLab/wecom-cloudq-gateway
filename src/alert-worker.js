@@ -71,9 +71,8 @@ async function analyze(job, integration) {
 
 async function deliver(job, integration) {
   if (!integration.targetChatId) throw new Error("Target WeCom group is not bound");
-  const prefix = `🚨 **${integration.name}**\n\n`;
   if (!job.textDelivered) {
-    const parts = splitUtf8(prefix + job.answer);
+    const parts = splitUtf8(job.answer);
     for (let index = 0; index < parts.length; index += 1) {
       const suffix = parts.length > 1 ? `\n\n（${index + 1}/${parts.length}）` : "";
       await notifier.sendMessage(integration.botConfigId, integration.targetChatId, parts[index] + suffix);
