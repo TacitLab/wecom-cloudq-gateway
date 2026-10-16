@@ -157,6 +157,15 @@ function db() {
       ON alert_integrations(enabled, last_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_alert_jobs_status
       ON alert_jobs(status, next_attempt_at, created_at);
+
+    CREATE TABLE IF NOT EXISTS alert_job_attachments (
+      job_id TEXT NOT NULL REFERENCES alert_jobs(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      content BLOB NOT NULL,
+      sent_at INTEGER,
+      PRIMARY KEY(job_id, ordinal)
+    );
   `);
   const agentColumns = database.prepare("PRAGMA table_info(cloud_agents)").all().map((column) => column.name);
   if (!agentColumns.includes("api_key_config_id")) {
@@ -174,6 +183,9 @@ function db() {
   if (!alertColumns.includes("diagnostic_credential_id")) {
     database.exec("ALTER TABLE alert_integrations ADD COLUMN diagnostic_credential_id TEXT REFERENCES tencent_credentials(id) ON DELETE RESTRICT");
   }
+  const jobColumns = database.prepare("PRAGMA table_info(alert_jobs)").all().map((column) => column.name);
+  if (!jobColumns.includes("text_delivered")) database.exec("ALTER TABLE alert_jobs ADD COLUMN text_delivered INTEGER NOT NULL DEFAULT 0");
+  if (!jobColumns.includes("attachment_error")) database.exec("ALTER TABLE alert_jobs ADD COLUMN attachment_error TEXT NOT NULL DEFAULT ''");
   return database;
 }
 

@@ -1,7 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const { createHtmlReply, HTML_DELIVERY_INSTRUCTION } = require("./html-reply");
+const { createHtmlReply, expectsHtmlAttachment, HTML_DELIVERY_INSTRUCTION, HTML_EXPORT_REQUEST } = require("./html-reply");
 const {
   CloudAgentClient,
   NotFoundError,
@@ -268,7 +268,8 @@ class CloudAgentAdapter {
 
       const finalText = options.showThinking === false ? createFinalAgentTextCollector() : undefined;
       const onNotification = finalText ? finalText.onNotification : createAgentTextFormatter(onDelta);
-      const htmlReply = options.htmlAttachments ? createHtmlReply(onNotification) : undefined;
+      const htmlRequested = options.htmlAttachments && expectsHtmlAttachment(content);
+      const htmlReply = options.htmlAttachments ? createHtmlReply(onNotification, { allowHtmlFence: htmlRequested }) : undefined;
 
       const input = htmlReply ? `${String(content)}\n\n${HTML_DELIVERY_INSTRUCTION}` : String(content);
       const response = await session.prompt(input, {
@@ -277,7 +278,31 @@ class CloudAgentAdapter {
         onChunk: htmlReply ? htmlReply.onNotification : onNotification,
         signal: options.signal,
       });
-      const delivery = htmlReply?.finish();
+      let delivery = htmlReply?.finish();
+      // Published skills may save/display a sandbox report and return only a
+      // summary. Ask once for the existing report in the same Session instead
+      // of silently treating a summary as successful file delivery.
+      if (htmlRequested && !delivery.attachments.length && response.stopReason === "end_turn") {
+        options.signal?.throwIfAborted();
+        const exported = createHtmlReply(() => {}, { allowHtmlFence: true });
+        try {
+          const result = await session.prompt(HTML_EXPORT_REQUEST, {
+            timeoutMs: this.config.promptTimeoutMs,
+            includeThinking: false,
+            onChunk: exported.onNotification,
+            signal: options.signal,
+          });
+          const recovered = exported.finish();
+          if (result.stopReason === "end_turn" && recovered.attachments.length) delivery = recovered;
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          // Keep the original brief available even if exporting the report fails.
+          // SDK errors can contain credentials from the conversation; do not log them.
+        }
+      }
+      if (htmlRequested && !delivery.attachments.length && !delivery.warnings.length) {
+        delivery.warnings.push("未收到完整 HTML 源码，报告附件未发送。请重试生成报告。");
+      }
       if (finalText?.getText()) onDelta(finalText.getText());
       return delivery ? { ...response, ...delivery } : response;
     } catch (error) {

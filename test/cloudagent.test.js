@@ -364,3 +364,78 @@ test("runtime names are bounded and do not expose conversation identifiers", () 
   assert.match(name, /^wecom-production-[a-f0-9]{10}-\d+$/);
   assert.doesNotMatch(name, /example|private|@/);
 });
+
+for (const showThinking of [true, false]) {
+  test(`exports a sandbox report in the same Session when the Agent only returns a summary (thinking=${showThinking})`, async () => {
+    let prompts = 0;
+    let disconnected = false;
+    const html = '<!DOCTYPE html>\n<html><body>报告原文，置信度 85%</body></html>\n';
+    const session = {
+      async connect() {},
+      async disconnect() { disconnected = true; },
+      async prompt(input, options) {
+        prompts += 1;
+        if (prompts === 1) {
+          assert.match(input, /wecom_attachment_delivery/);
+          options.onChunk(textChunk("报告已生成并展示完毕。诊断总结：Redis 延迟突增。", "summary"));
+        } else {
+          assert.equal(prompts, 2);
+          assert.match(input, /读取那份报告文件/);
+          assert.match(input, /不要重复诊断/);
+          assert.equal(options.includeThinking, false);
+          options.onChunk({ update: { sessionUpdate: "tool_call" } });
+          options.onChunk(textChunk('```wecom-html filename="诊断报告.html"\n' + html + '```\n', "export"));
+        }
+        return { stopReason: "end_turn" };
+      },
+    };
+    const adapter = new CloudAgentAdapter(config(), { runtimes: { get: async () => ({ sessions: { get: async () => session } }) } });
+    let visible = "";
+    const response = await adapter.sendMessage({ runtimeId: "r", sessionId: "s" }, "先输出简报，再输出完整 HTML 报告", (delta) => { visible += delta; }, { htmlAttachments: true, showThinking });
+    assert.equal(prompts, 2);
+    assert.equal(disconnected, true);
+    assert.match(visible, /诊断总结：Redis 延迟突增/);
+    assert.doesNotMatch(visible, /报告原文|<html>|wecom-html/);
+    assert.deepEqual(response.warnings, []);
+    assert.equal(response.attachments[0].buffer.toString(), html);
+    assert.equal(response.attachments[0].filename, "诊断报告.html");
+  });
+}
+
+for (const failure of ["summary", "throw", "max_tokens"]) {
+  test(`missing HTML produces an explicit warning after one export attempt: ${failure}`, async () => {
+    let prompts = 0;
+    const session = {
+      async connect() {}, async disconnect() {},
+      async prompt(_input, options) {
+        prompts += 1;
+        if (prompts === 2 && failure === "throw") throw new Error("export failed");
+        options.onChunk(textChunk("报告已生成。", "summary"));
+        return { stopReason: prompts === 2 && failure === "max_tokens" ? "max_tokens" : "end_turn" };
+      },
+    };
+    const adapter = new CloudAgentAdapter(config(), { runtimes: { get: async () => ({ sessions: { get: async () => session } }) } });
+    const response = await adapter.sendMessage({ runtimeId: "r", sessionId: "s" }, "输出 HTML 报告", () => {}, { htmlAttachments: true });
+    assert.equal(prompts, 2);
+    assert.equal(response.attachments.length, 0);
+    assert.match(response.warnings.join(""), /报告附件未发送/);
+  });
+}
+
+test("a complete ordinary HTML fence satisfies a report request without a second prompt", async () => {
+  let prompts = 0;
+  const session = {
+    async connect() {}, async disconnect() {},
+    async prompt(_input, options) {
+      prompts += 1;
+      options.onChunk(textChunk('简报\n```html\n<!DOCTYPE html>\n<html>完整报告</html>\n```\n'));
+      return { stopReason: "end_turn" };
+    },
+  };
+  const adapter = new CloudAgentAdapter(config(), { runtimes: { get: async () => ({ sessions: { get: async () => session } }) } });
+  let visible = "";
+  const response = await adapter.sendMessage({ runtimeId: "r", sessionId: "s" }, "输出完整 HTML 报告", (delta) => { visible += delta; }, { htmlAttachments: true });
+  assert.equal(prompts, 1);
+  assert.equal(response.attachments.length, 1);
+  assert.doesNotMatch(visible, /<html>|完整报告/);
+});

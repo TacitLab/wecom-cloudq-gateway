@@ -40,19 +40,29 @@ async function analyze(job, integration) {
     let answer = "";
     const response = await adapter.sendMessage(conversation,
       withDiagnosticCredential(prompt, credential, integration.region), (delta) => { answer += delta; },
-      { showThinking: pair.bot.showThinking });
-    const finalAnswer = redact(finalizeAgentText(answer || "诊断任务已完成，但 Agent 未返回文本结果。"));
+      { showThinking: pair.bot.showThinking, htmlAttachments: true });
+    const warnings = [...(response?.warnings || [])];
+    const attachments = response?.stopReason === "end_turn" ? response.attachments || [] : [];
+    if (response?.attachments?.length && response.stopReason !== "end_turn") warnings.push("Agent 未正常完成，HTML 附件未发送。请重新诊断。");
+    const attachmentError = redact(warnings.join("\n"));
+    const finalAnswer = redact(finalizeAgentText([answer || "诊断任务已完成，但 Agent 未返回文本结果。", ...warnings].join("\n\n")));
     const recordedPrompt = redact(credential ? `${prompt}\n\n${INJECTED_CREDENTIAL_NOTICE}` : prompt);
+    alertStore.saveJobAttachments(job.id, attachments.map((item) => ({
+      filename: redact(item.filename), buffer: Buffer.from(redact(item.buffer.toString("utf8")), "utf8"),
+    })));
     alertStore.updateJob(job.id, {
       prompt: recordedPrompt,
       answer: finalAnswer,
       runtimeId: conversation.runtimeId,
       sessionId: conversation.sessionId,
       status: "delivery_pending",
+      textDelivered: 0,
+      attachmentError,
       nextAttemptAt: 0,
       error: response?.stopReason ? redact(`stopReason=${response.stopReason}`) : null,
     });
-    return { ...job, prompt: recordedPrompt, answer: finalAnswer, runtimeId: conversation.runtimeId, sessionId: conversation.sessionId };
+    console.info("alert_html_result", { jobId: job.id, attachmentCount: attachments.length, warningCount: warnings.length });
+    return { ...job, prompt: recordedPrompt, answer: finalAnswer, textDelivered: false, attachmentError, runtimeId: conversation.runtimeId, sessionId: conversation.sessionId };
   } catch (error) {
     // SDK failures may include the sent request body. Do not propagate it to job history or logs.
     throw new Error(redact(safeError(error)));
@@ -62,12 +72,19 @@ async function analyze(job, integration) {
 async function deliver(job, integration) {
   if (!integration.targetChatId) throw new Error("Target WeCom group is not bound");
   const prefix = `🚨 **${integration.name}**\n\n`;
-  const parts = splitUtf8(prefix + job.answer);
-  for (let index = 0; index < parts.length; index += 1) {
-    const suffix = parts.length > 1 ? `\n\n（${index + 1}/${parts.length}）` : "";
-    await notifier.sendMessage(integration.botConfigId, integration.targetChatId, parts[index] + suffix);
+  if (!job.textDelivered) {
+    const parts = splitUtf8(prefix + job.answer);
+    for (let index = 0; index < parts.length; index += 1) {
+      const suffix = parts.length > 1 ? `\n\n（${index + 1}/${parts.length}）` : "";
+      await notifier.sendMessage(integration.botConfigId, integration.targetChatId, parts[index] + suffix);
+    }
+    alertStore.updateJob(job.id, { textDelivered: 1 });
   }
-  alertStore.updateJob(job.id, { status: "delivered", error: null });
+  for (const attachment of alertStore.pendingJobAttachments(job.id)) {
+    await notifier.sendHtmlAttachment(integration.botConfigId, integration.targetChatId, attachment);
+    alertStore.markJobAttachmentSent(job.id, attachment.ordinal);
+  }
+  alertStore.updateJob(job.id, { status: job.attachmentError ? "failed" : "delivered", error: job.attachmentError || null });
 }
 
 async function handleJob(job) {

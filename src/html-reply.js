@@ -14,6 +14,16 @@ const HTML_DELIVERY_INSTRUCTION = `
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const MAX_HTML_FILES = 5;
 
+function expectsHtmlAttachment(prompt) {
+  return /\bhtml\b|\.html?\b/i.test(String(prompt))
+    && /生成|输出|报告|网页|附件|交付|导出|修改|更新|generate|create|report|export|attach|deliver|update|build/i.test(String(prompt));
+}
+
+const HTML_EXPORT_REQUEST = `上一轮的 HTML 报告附件尚未交付：网关没有收到完整 HTML 源码。
+请继续使用本次会话的已有诊断结果。如果已在沙箱生成报告，请读取那份报告文件；如果尚未生成，请根据已经查到的真实证据生成完整报告。不要重复诊断、克隆代码或查询数据，不要修改云资源，不要只说“已生成/已展示”，也不要只输出总结、路径或链接。
+现在仅输出完整 HTML 文件的专用 wecom-html 代码块（不要解释此协议）。如果确实无法生成，请如实说明原因。
+${HTML_DELIVERY_INSTRUCTION}`;
+
 function safeFilename(value, index) {
   const basename = String(value || "").split(/[\\/]/).at(-1)
     .replace(/[\x00-\x1f\x7f<>:"|?*]/g, "_").replace(/^\.+/, "").trim();
@@ -23,7 +33,7 @@ function safeFilename(value, index) {
 
 // Line buffering also handles fences split across arbitrary ACP text chunks.
 // Only this turn's deliverables after the last tool call are retained.
-function createHtmlReply(onNotification) {
+function createHtmlReply(onNotification, { allowHtmlFence = false } = {}) {
   let pending = "";
   let message;
   let messageId;
@@ -78,7 +88,9 @@ function createHtmlReply(onNotification) {
       if (!overflow) source.push(value);
       return;
     }
-    const opening = !otherFence && bare.match(/^ {0,3}(`{3,}|~{3,})wecom-html(?:\s+filename=(?:"([^"]*)"|'([^']*)'|(\S+)))?\s*$/i);
+    const opening = !otherFence && bare.match(allowHtmlFence
+      ? /^ {0,3}(`{3,}|~{3,})(?:wecom-html|html)(?:\s+filename=(?:"([^"]*)"|'([^']*)'|(\S+)))?\s*$/i
+      : /^ {0,3}(`{3,}|~{3,})wecom-html(?:\s+filename=(?:"([^"]*)"|'([^']*)'|(\S+)))?\s*$/i);
     if (opening) {
       fence = { marker: opening[1], filename: opening[2] ?? opening[3] ?? opening[4] };
       bytes = 0;
@@ -155,4 +167,4 @@ function createHtmlReply(onNotification) {
   };
 }
 
-module.exports = { createHtmlReply, HTML_DELIVERY_INSTRUCTION, MAX_HTML_BYTES };
+module.exports = { createHtmlReply, expectsHtmlAttachment, HTML_DELIVERY_INSTRUCTION, HTML_EXPORT_REQUEST, MAX_HTML_BYTES };

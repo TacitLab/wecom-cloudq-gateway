@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const { validateMonitorType, validateRegion } = require("./alert-config");
 const { db } = require("./database");
 const { runtimeConfig } = require("./config");
+const { expectsHtmlAttachment } = require("./html-reply");
 
 function text(value, label, { required = true, max = 1000 } = {}) {
   const result = String(value ?? "").trim();
@@ -208,6 +209,8 @@ function jobFromRow(row) {
     payload: JSON.parse(row.payload_json || "{}"),
     prompt: row.prompt,
     answer: row.answer,
+    textDelivered: Boolean(row.text_delivered),
+    attachmentError: row.attachment_error || "",
     runtimeId: row.runtime_id,
     sessionId: row.session_id,
     status: row.status,
@@ -259,12 +262,36 @@ function updateJob(id, patch) {
   const allowed = {
     prompt: "prompt", answer: "answer", runtimeId: "runtime_id", sessionId: "session_id",
     status: "status", attemptCount: "attempt_count", nextAttemptAt: "next_attempt_at", error: "error",
+    textDelivered: "text_delivered", attachmentError: "attachment_error",
   };
   const entries = Object.entries(patch).filter(([key]) => allowed[key]);
   if (!entries.length) return;
   const sql = entries.map(([key]) => `${allowed[key]}=?`).join(",");
   db().prepare(`UPDATE alert_jobs SET ${sql},updated_at=? WHERE id=?`)
     .run(...entries.map(([, value]) => value == null ? null : value), Date.now(), id);
+}
+
+function saveJobAttachments(jobId, attachments) {
+  const database = db();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.prepare("DELETE FROM alert_job_attachments WHERE job_id=?").run(jobId);
+    const insert = database.prepare("INSERT INTO alert_job_attachments(job_id,ordinal,filename,content) VALUES (?,?,?,?)");
+    attachments.forEach((item, index) => insert.run(jobId, index, item.filename, item.buffer));
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function pendingJobAttachments(jobId) {
+  return db().prepare("SELECT ordinal,filename,content FROM alert_job_attachments WHERE job_id=? AND sent_at IS NULL ORDER BY ordinal")
+    .all(jobId).map((row) => ({ ordinal: row.ordinal, filename: row.filename, buffer: Buffer.from(row.content) }));
+}
+
+function markJobAttachmentSent(jobId, ordinal) {
+  db().prepare("UPDATE alert_job_attachments SET sent_at=? WHERE job_id=? AND ordinal=?").run(Date.now(), jobId, ordinal);
 }
 
 function listJobs(limit = 100) {
@@ -278,10 +305,16 @@ function listJobs(limit = 100) {
 function retryJob(id) {
   const row = db().prepare("SELECT * FROM alert_jobs WHERE id=?").get(id);
   if (!row) throw new Error("Alert job not found");
-  const status = row.answer ? "delivery_pending" : "queued";
+  const hasAttachments = db().prepare("SELECT 1 FROM alert_job_attachments WHERE job_id=? LIMIT 1").get(id);
+  const missingLegacyHtml = expectsHtmlAttachment(row.prompt) && !hasAttachments;
+  const status = row.answer && !row.attachment_error && !missingLegacyHtml ? "delivery_pending" : "queued";
+  if (status === "queued" || row.status === "delivered") {
+    db().prepare("UPDATE alert_jobs SET text_delivered=0 WHERE id=?").run(id);
+    db().prepare("UPDATE alert_job_attachments SET sent_at=NULL WHERE job_id=?").run(id);
+  }
   db().prepare("UPDATE alert_jobs SET status=?,attempt_count=0,next_attempt_at=0,error=NULL,updated_at=? WHERE id=?")
     .run(status, Date.now(), id);
-  return jobFromRow({ ...row, status, attempt_count: 0, next_attempt_at: 0, error: null });
+  return jobFromRow(db().prepare("SELECT * FROM alert_jobs WHERE id=?").get(id));
 }
 
 function markInterruptedJobs() {
@@ -307,6 +340,9 @@ module.exports = {
   listJobs,
   markInterruptedJobs,
   nextJob,
+  saveJobAttachments,
+  pendingJobAttachments,
+  markJobAttachmentSent,
   retryJob,
   saveIntegration,
   setIntegrationEnabled,
