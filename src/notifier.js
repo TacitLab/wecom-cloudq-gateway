@@ -33,4 +33,19 @@ async function sendMessage(botConfigId, chatId, content) {
   return response;
 }
 
-module.exports = { clientFor, register, replyStream, sendMessage, unregister };
+async function replyHtmlFile(botConfigId, frame, attachment, { signal } = {}) {
+  signal?.throwIfAborted();
+  const client = clientFor(botConfigId);
+  if (!client?.isConnected) throw new Error("WeCom Bot long connection is not available");
+  const uploaded = await client.uploadMedia(attachment.buffer, { type: "file", filename: attachment.filename });
+  if (!uploaded?.media_id) throw new Error("WeCom media upload did not return media_id");
+  signal?.throwIfAborted();
+  const response = await client.replyMedia(frame, "file", uploaded.media_id);
+  const result = response?.body || response;
+  if (result?.errcode && Number(result.errcode) !== 0) {
+    throw new Error(`WeCom file reply failed: ${result.errmsg || result.errcode}`);
+  }
+  return response;
+}
+
+module.exports = { clientFor, register, replyHtmlFile, replyStream, sendMessage, unregister };

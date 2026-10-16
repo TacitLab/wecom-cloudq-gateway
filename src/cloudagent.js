@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { createHtmlReply, HTML_DELIVERY_INSTRUCTION } = require("./html-reply");
 const {
   CloudAgentClient,
   NotFoundError,
@@ -267,15 +268,18 @@ class CloudAgentAdapter {
 
       const finalText = options.showThinking === false ? createFinalAgentTextCollector() : undefined;
       const onNotification = finalText ? finalText.onNotification : createAgentTextFormatter(onDelta);
+      const htmlReply = options.htmlAttachments ? createHtmlReply(onNotification) : undefined;
 
-      const response = await session.prompt(String(content), {
+      const input = htmlReply ? `${String(content)}\n\n${HTML_DELIVERY_INSTRUCTION}` : String(content);
+      const response = await session.prompt(input, {
         timeoutMs: this.config.promptTimeoutMs,
         includeThinking: options.showThinking === false ? false : this.config.includeThinking,
-        onChunk: onNotification,
+        onChunk: htmlReply ? htmlReply.onNotification : onNotification,
         signal: options.signal,
       });
+      const delivery = htmlReply?.finish();
       if (finalText?.getText()) onDelta(finalText.getText());
-      return response;
+      return delivery ? { ...response, ...delivery } : response;
     } catch (error) {
       if (isConversationUnavailable(error)) {
         throw new ConversationUnavailableError(

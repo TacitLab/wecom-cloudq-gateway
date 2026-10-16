@@ -68,19 +68,40 @@ async function handleTask(task, options = {}) {
           console.error("wecom_stream_update_failed", { taskId: task.id, message: safeError(error) });
         });
       }
-    }, { ...options, showThinking: bot.showThinking });
+    }, { ...options, showThinking: bot.showThinking, htmlAttachments: true });
   } finally {
     await sendChain;
   }
 
-  const finalAnswer = finalizeAgentText(answer || "任务已完成。");
+  options.signal?.throwIfAborted();
+  const deliveryNotes = [...(response?.warnings || [])];
+  let deliveryError;
+  if (response?.attachments?.length && response.stopReason !== "end_turn") {
+    deliveryNotes.push("Agent 未正常完成，HTML 附件未发送。请重新生成。");
+    deliveryError = "HTML generation did not complete";
+  } else {
+    for (const attachment of response?.attachments || []) {
+      try {
+        await notifier.replyHtmlFile(task.botConfigId, task.frame, attachment, options);
+        deliveryNotes.push(`📎 已发送附件：${attachment.filename}`);
+      } catch (error) {
+        options.signal?.throwIfAborted();
+        deliveryError = safeError(error);
+        console.error("wecom_html_delivery_failed", { taskId: task.id, message: deliveryError });
+        deliveryNotes.push(`HTML 附件「${attachment.filename}」发送失败，请重试。`);
+        break;
+      }
+    }
+  }
+  const fallback = deliveryError || response?.warnings?.length ? "任务已结束。" : "任务已完成。";
+  const finalAnswer = finalizeAgentText([answer || fallback, ...deliveryNotes].join("\n\n"));
   await sendUpdate(task, finalAnswer, true);
   store.updateTask(task.id, {
-    status: "completed",
+    status: deliveryError || response?.warnings?.length ? "failed" : "completed",
     answer: finalAnswer,
     runtimeId: conversation.runtimeId,
     sessionId: conversation.sessionId,
-    error: response?.stopReason ? `stopReason=${response.stopReason}` : null,
+    error: deliveryError || response?.warnings?.join(" ") || (response?.stopReason ? `stopReason=${response.stopReason}` : null),
   });
   store.redactTask(task.id);
 }
