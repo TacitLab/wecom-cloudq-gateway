@@ -1,6 +1,6 @@
 "use strict";
 
-const { CloudAgentAdapter, finalizeAgentText, isConversationUnavailable } = require("./cloudagent");
+const { AgentAdapter, finalizeAgentText, isConversationUnavailable } = require("./agent");
 const notifier = require("./notifier");
 const registry = require("./registry");
 const store = require("./store");
@@ -12,8 +12,8 @@ const adapters = new Map();
 
 function adapterFor(agent, { sensitive = false } = {}) {
   const key = `${agent.id}:${agent.revision}${sensitive ? ":sensitive" : ""}`;
-  if (!adapters.has(key)) adapters.set(key, new CloudAgentAdapter({
-    ...agent, agentName: agent.name, ...(sensitive ? { logLevel: "off" } : {}),
+  if (!adapters.has(key)) adapters.set(key, new AgentAdapter({
+    ...agent, agentName: agent.name,
   }));
   return adapters.get(key);
 }
@@ -32,17 +32,17 @@ async function sendUpdate(task, content, finish) {
 
 async function handleTask(task, options = {}) {
   const bot = registry.getBot(task.botConfigId);
-  const agent = registry.getAgent(task.cloudAgentId, { secrets: true });
+  const agent = registry.getAgent(task.agentConfigId, { secrets: true });
   if (!bot || !agent) throw new Error("Bot-Agent pairing was removed before the task started");
   const adapter = adapterFor(agent);
-  const route = { botConfigId: bot.id, cloudAgentId: agent.id, agentRevision: agent.revision };
+  const route = { botConfigId: bot.id, agentConfigId: agent.id, agentRevision: agent.revision };
 
   if (task.command === "new") {
     const created = await adapter.createConversation(`${task.conversationKey}:${Date.now()}`, options);
     store.setConversation(task.conversationKey, route, created);
     const answer = "新会话已创建。接下来的消息会使用新的上下文。";
     await sendUpdate(task, answer, true);
-    store.updateTask(task.id, { status: "completed", runtimeId: created.runtimeId, sessionId: created.sessionId });
+    store.updateTask(task.id, { status: "completed", sessionId: created.sessionId });
     store.redactTask(task.id);
     return;
   }
@@ -99,7 +99,6 @@ async function handleTask(task, options = {}) {
   store.updateTask(task.id, {
     status: deliveryError || response?.warnings?.length ? "failed" : "completed",
     answer: finalAnswer,
-    runtimeId: conversation.runtimeId,
     sessionId: conversation.sessionId,
     error: deliveryError || response?.warnings?.join(" ") || (response?.stopReason ? `stopReason=${response.stopReason}` : null),
   });
@@ -118,7 +117,7 @@ async function processConversation(conversationKey) {
     } catch (error) {
       const cancelled = control.signal.aborted;
       const answer = cancelled ? "⏹️ 当前任务已停止。" : failureMessage(error);
-      console.error("cloudagent_task_failed", {
+      console.error("wma_task_failed", {
         conversationKey,
         taskId: task.id,
         message: cancelled ? "Cancelled by user" : safeError(error),

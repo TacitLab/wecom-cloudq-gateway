@@ -121,7 +121,7 @@ export function AlertsView({
       </Dialog>
       <PanelCard
         title="告警 RCA"
-        hint="定时轮询腾讯云告警历史，使用 Bot 当前绑定的 CloudAgent 诊断，并主动推送到固定群聊。"
+        hint="定时轮询腾讯云告警历史，使用 Bot 当前绑定的 Agent 诊断，并主动推送到固定群聊。"
         action={state && state.tencentCredentials.length === 0
           ? <Button variant="outline" onClick={onSetupCredential}>先配置腾讯云凭证</Button>
           : <Button onClick={() => onEdit()}>新增告警配置</Button>}
@@ -156,7 +156,7 @@ export function AlertsView({
                     <div className="text-xs text-muted-foreground">{a.credentialName || '未关联凭证'}</div>
                   </TableCell>
                   <TableCell>
-                    {a.botName} → {a.cloudAgentName}
+                    {a.botName} → {a.agentName || '待绑定 WMA Agent（轮询暂停）'}
                   </TableCell>
                   <TableCell>
                     {a.targetChatId ? (

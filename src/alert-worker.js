@@ -4,7 +4,7 @@ const alertStore = require("./alert-store");
 const notifier = require("./notifier");
 const registry = require("./registry");
 const { adapterFor } = require("./worker");
-const { finalizeAgentText } = require("./cloudagent");
+const { finalizeAgentText } = require("./agent");
 const { safeError } = require("./utils");
 const { defaultPrompt, renderPrompt } = require("./alert-prompt");
 const { credentialRedactor, INJECTED_CREDENTIAL_NOTICE, withDiagnosticCredential } = require("./alert-credentials");
@@ -53,7 +53,6 @@ async function analyze(job, integration) {
     alertStore.updateJob(job.id, {
       prompt: recordedPrompt,
       answer: finalAnswer,
-      runtimeId: conversation.runtimeId,
       sessionId: conversation.sessionId,
       status: "delivery_pending",
       textDelivered: 0,
@@ -62,7 +61,7 @@ async function analyze(job, integration) {
       error: response?.stopReason ? redact(`stopReason=${response.stopReason}`) : null,
     });
     console.info("alert_html_result", { jobId: job.id, attachmentCount: attachments.length, warningCount: warnings.length });
-    return { ...job, prompt: recordedPrompt, answer: finalAnswer, textDelivered: false, attachmentError, runtimeId: conversation.runtimeId, sessionId: conversation.sessionId };
+    return { ...job, prompt: recordedPrompt, answer: finalAnswer, textDelivered: false, attachmentError, sessionId: conversation.sessionId };
   } catch (error) {
     // SDK failures may include the sent request body. Do not propagate it to job history or logs.
     throw new Error(redact(safeError(error)));

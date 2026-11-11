@@ -8,7 +8,7 @@ export function StatCards({ state }: { state: AdminState | null }) {
     : 0
   const items = [
     { label: '企业微信 Bot', value: state?.bots.length },
-    { label: 'CloudAgent 配置', value: state?.agents.length },
+    { label: 'Agent 配置', value: state?.agents.length },
     { label: '已认证长连接', value: state ? online : undefined },
     { label: '告警轮询配置', value: state?.alertIntegrations.length },
   ]

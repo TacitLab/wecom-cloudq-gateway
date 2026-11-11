@@ -21,8 +21,8 @@ const alertWorker = require("../src/alert-worker");
 const { splitUtf8 } = require("../src/alert-worker");
 
 function createPair() {
-  const agent = registry.saveAgent({ name: "SRE", agentId: "agent_ALERT", apiKey: "pt_test" });
-  const bot = registry.saveBot({ name: "Alert Bot", botId: "aibot-alert", secret: "bot-secret", cloudAgentId: agent.id });
+  const agent = registry.saveAgent({ credentialConfigId: registry.saveWmaCredential({ name: "WMA test", secretId: "AKID_test", secretKey: "test-secret" }).id, name: "SRE", agentId: "agent_ALERT", });
+  const bot = registry.saveBot({ name: "Alert Bot", botId: "aibot-alert", secret: "bot-secret", agentConfigId: agent.id });
   return { agent, bot };
 }
 
@@ -31,7 +31,7 @@ function createCredential(input = {}) {
 }
 
 test.beforeEach(() => {
-  db().exec("DELETE FROM alert_jobs; DELETE FROM alert_integrations; DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents; DELETE FROM tencent_credentials;");
+  db().exec("DELETE FROM alert_jobs; DELETE FROM alert_integrations; DELETE FROM wma_tasks; DELETE FROM wma_conversations; DELETE FROM wecom_bots; DELETE FROM wma_agents; DELETE FROM tencent_credentials;");
 });
 
 test("alert integration hides credentials, binds one group, and deduplicates AlarmId", () => {
@@ -94,7 +94,7 @@ test("alert polling can be paused and resumed without losing its group binding",
   assert.equal(alertStore.dueIntegrations().length, 1);
 });
 
-test("group bind command records chatid instead of sending the command to CloudAgent", async () => {
+test("group bind command records chatid instead of sending the command to WMA", async () => {
   const { bot } = createPair();
   const integration = alertStore.saveIntegration({ name: "Bind me", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou" });
   const replies = [];
@@ -148,13 +148,13 @@ test("binding intercepts a spaced display-name mention in text and mixed message
     });
     assert.equal(alertStore.getIntegration(integration.id).targetChatId, `chat-${msgtype}`);
     assert.match(replies[0][2], /已绑定/);
-    assert.equal(db().prepare("SELECT COUNT(*) AS n FROM tasks").get().n, 0);
+    assert.equal(db().prepare("SELECT COUNT(*) AS n FROM wma_tasks").get().n, 0);
   }
 });
 
 test("display-name binding still rejects invalid codes and codes assigned to another Bot", async () => {
   const { bot } = createPair();
-  const otherBot = registry.saveBot({ name: bot.name, botId: "aibot-other", secret: "test-secret", cloudAgentId: bot.cloudAgentId });
+  const otherBot = registry.saveBot({ name: bot.name, botId: "aibot-other", secret: "test-secret", agentConfigId: bot.agentConfigId });
   const integration = alertStore.saveIntegration({ name: "Own Bot only", botConfigId: otherBot.id, credentialId: createCredential().id, region: "ap-guangzhou" });
   for (const code of ["INVALID_CODE", integration.bindCode]) {
     const replies = [];
@@ -167,7 +167,7 @@ test("display-name binding still rejects invalid codes and codes assigned to ano
     assert.match(replies[0][2], /绑定失败/);
   }
   assert.equal(alertStore.getIntegration(integration.id).targetChatId, "");
-  assert.equal(db().prepare("SELECT COUNT(*) AS n FROM tasks").get().n, 0);
+  assert.equal(db().prepare("SELECT COUNT(*) AS n FROM wma_tasks").get().n, 0);
   const replies = [];
   await handleMessage(otherBot.id, { replyStream: async (...args) => { replies.push(args); } }, {
     body: {
@@ -371,18 +371,18 @@ test("CLS polling uses milliseconds, record IDs for deduplication, and keeps dia
     [{ Key: "status", Values: ["0"] }]);
 });
 
-test("monitoring scope is explicit, preserves legacy CVM defaults, and resets the cursor when changed", () => {
+test("monitoring scope is explicit, applies the default CVM namespace, and resets the cursor when changed", () => {
   const { bot } = createPair();
   const input = { name: "范围配置", botConfigId: bot.id, credentialId: createCredential().id, region: "ap-guangzhou" };
-  const legacy = alertStore.saveIntegration(input);
-  assert.equal(legacy.namespace, "cvm_device");
+  const initial = alertStore.saveIntegration(input);
+  assert.equal(initial.namespace, "cvm_device");
   assert.throws(() => alertStore.saveIntegration({ ...input, policyScope: "selected", policyIds: [] }), /policy is required/);
   assert.throws(() => alertStore.saveIntegration({ ...input, policyScope: "all", policyIds: ["policy-1"] }), /Invalid policy scope/);
   assert.throws(() => alertStore.saveIntegration({ ...input, monitorType: "bad-source" }), /Invalid monitor type/);
-  alertStore.updatePollState(legacy.id, { attemptedAt: 123, succeededAt: 123 });
-  const unchanged = alertStore.saveIntegration({ ...input, name: "重命名" }, legacy.id);
+  alertStore.updatePollState(initial.id, { attemptedAt: 123, succeededAt: 123 });
+  const unchanged = alertStore.saveIntegration({ ...input, name: "重命名" }, initial.id);
   assert.equal(unchanged.lastSuccessAt, 123);
-  const all = alertStore.saveIntegration({ ...input, namespace: "", policyScope: "all" }, legacy.id);
+  const all = alertStore.saveIntegration({ ...input, namespace: "", policyScope: "all" }, initial.id);
   assert.equal(all.namespace, "");
   assert.equal(all.lastSuccessAt, null);
   assert.equal(queryFor(all, 1, 100, 200).Namespaces, undefined);
@@ -398,7 +398,7 @@ test("changing the execution Bot clears the old group binding", () => {
   const saved = alertStore.saveIntegration(input);
   const bound = alertStore.bindChat(saved.bindCode, bot.id, "original-chat");
   assert.equal(alertStore.saveIntegration(input, saved.id).targetChatId, "original-chat");
-  const second = registry.saveBot({ name: "Other Bot", botId: "other-bot", secret: "other-secret", cloudAgentId: agent.id });
+  const second = registry.saveBot({ name: "Other Bot", botId: "other-bot", secret: "other-secret", agentConfigId: agent.id });
   const updated = alertStore.saveIntegration({ ...input, botConfigId: second.id }, saved.id);
   assert.equal(updated.targetChatId, "");
   assert.notEqual(updated.bindCode, bound.bindCode);

@@ -11,41 +11,9 @@ function text(value, label, { required = true, max = 500 } = {}) {
 }
 
 function positiveInteger(value, fallback, label) {
-  const result = value === undefined || value === "" ? fallback : Number.parseInt(value, 10);
-  if (!Number.isFinite(result) || result <= 0) throw new Error(`${label} must be a positive integer`);
+  const result = value === undefined || value === "" ? fallback : Number(value);
+  if (!Number.isSafeInteger(result) || result <= 0) throw new Error(`${label} must be a positive integer`);
   return result;
-}
-
-function legacyEncryptionKey() {
-  const raw = process.env.CONFIG_ENCRYPTION_KEY?.trim() || "";
-  const key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, "hex") : Buffer.from(raw, "base64");
-  if (key.length !== 32) {
-    throw new Error("This database contains secrets from an encrypted older version. Temporarily set its original CONFIG_ENCRYPTION_KEY once to migrate them to plaintext");
-  }
-  return key;
-}
-
-function decryptLegacySecret(value) {
-  const [version, iv, tag, encrypted] = String(value || "").split(":");
-  if (version !== "v1" || !iv || !tag || !encrypted) throw new Error("Invalid encrypted secret");
-  const decipher = crypto.createDecipheriv("aes-256-gcm", legacyEncryptionKey(), Buffer.from(iv, "base64url"));
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64url")), decipher.final()]).toString("utf8");
-}
-
-function storedSecret(row, table, column) {
-  const value = String(row[column] || "");
-  if (!value.startsWith("v1:")) return value;
-  const plaintext = decryptLegacySecret(value);
-  db().prepare(`UPDATE ${table} SET ${column} = ? WHERE id = ?`).run(plaintext, row.id);
-  return plaintext;
-}
-
-function parseManifest(value) {
-  if (value == null || value === "") return {};
-  const parsed = typeof value === "string" ? JSON.parse(value) : value;
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("Manifest must be a JSON object");
-  return parsed;
 }
 
 function maskSecret(value) {
@@ -55,189 +23,119 @@ function maskSecret(value) {
   return key.slice(0, 6) + "****" + key.slice(-4);
 }
 
-function keyFromRow(row, { secrets = false } = {}) {
+function wmaCredentialFromRow(row, { secrets = false } = {}) {
   if (!row) return undefined;
   return {
-    id: row.id,
-    name: row.name,
-    ...(secrets
-      ? { apiKey: storedSecret(row, "api_keys", "api_key_cipher") }
-      : { apiKeyConfigured: true, apiKeyMasked: maskSecret(storedSecret(row, "api_keys", "api_key_cipher")) }),
-    baseUrl: row.base_url,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id, name: row.name, region: row.region,
+    ...(secrets ? { secretId: row.secret_id, secretKey: row.secret_key }
+      : { secretIdMasked: maskSecret(row.secret_id), secretKeyConfigured: Boolean(row.secret_key) }),
+    createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
 
-function resolveAgentApiKey(row, secrets) {
-  if (row.api_key_config_id) {
-    if (!secrets) return undefined;
-    const keyRow = db().prepare("SELECT * FROM api_keys WHERE id = ?").get(row.api_key_config_id);
-    return storedSecret(keyRow, "api_keys", "api_key_cipher");
-  }
-  return secrets ? storedSecret(row, "cloud_agents", "api_key_cipher") : undefined;
+function listWmaCredentials(options) {
+  return db().prepare("SELECT * FROM wma_credentials ORDER BY name,created_at").all().map((row) => wmaCredentialFromRow(row, options));
 }
 
+function getWmaCredential(id, options) {
+  return wmaCredentialFromRow(db().prepare("SELECT * FROM wma_credentials WHERE id=?").get(id), options);
+}
+
+function saveWmaCredential(input, id) {
+  const database = db();
+  const existing = id ? database.prepare("SELECT * FROM wma_credentials WHERE id=?").get(id) : undefined;
+  if (id && !existing) throw new Error("WMA credential configuration not found");
+  const record = {
+    id: existing?.id || crypto.randomUUID(),
+    name: text(input.name, "Credential name", { max: 100 }),
+    secretId: text(input.secretId, "WMA SecretId", { required: !existing, max: 256 }) || existing.secret_id,
+    secretKey: text(input.secretKey, "WMA SecretKey", { required: !existing, max: 256 }) || existing.secret_key,
+    region: text(input.region || existing?.region || "ap-guangzhou", "WMA region", { max: 60 }),
+  };
+  if (!/^[a-z]+-[a-z]+(?:-\d+)?$/.test(record.region)) throw new Error("Invalid WMA region");
+  const rotated = existing && (record.secretId !== existing.secret_id || record.secretKey !== existing.secret_key || record.region !== existing.region);
+  const now = Date.now();
+  database.exec("BEGIN");
+  try {
+    database.prepare(`
+      INSERT INTO wma_credentials (id,name,secret_id,secret_key,region,created_at,updated_at) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name,secret_id=excluded.secret_id,secret_key=excluded.secret_key,region=excluded.region,updated_at=excluded.updated_at
+    `).run(record.id, record.name, record.secretId, record.secretKey, record.region, existing?.created_at || now, now);
+    if (rotated) database.prepare("UPDATE wma_agents SET revision=revision+1,updated_at=? WHERE credential_config_id=?").run(now, record.id);
+    database.exec("COMMIT");
+  } catch (error) { database.exec("ROLLBACK"); throw error; }
+  return getWmaCredential(record.id);
+}
+
+function deleteWmaCredential(id) {
+  if (db().prepare("SELECT COUNT(*) AS count FROM wma_agents WHERE credential_config_id=?").get(id).count) throw new Error("WMA credential is still used by one or more Agents");
+  if (!db().prepare("DELETE FROM wma_credentials WHERE id=?").run(id).changes) throw new Error("WMA credential configuration not found");
+}
+
+const AGENT_SELECT = `SELECT a.*, c.name AS credential_name,c.region,c.secret_id,c.secret_key FROM wma_agents a JOIN wma_credentials c ON c.id=a.credential_config_id`;
 function agentFromRow(row, { secrets = false } = {}) {
   if (!row) return undefined;
   return {
-    id: row.id,
-    name: row.name,
-    agentId: row.business_agent_id,
-    ...(secrets ? { apiKey: resolveAgentApiKey(row, true) } : { apiKeyConfigured: true }),
-    apiKeyConfigId: row.api_key_config_id || null,
-    apiKeyName: row.api_key_name || null,
-    baseUrl: row.base_url,
-    sourceApp: row.source_app,
-    runtimeNamePrefix: row.runtime_name_prefix,
-    manifestVersion: row.manifest_version,
-    manifest: JSON.parse(row.manifest_json || "{}"),
-    controlTimeoutMs: row.control_timeout_ms,
-    promptTimeoutMs: row.prompt_timeout_ms,
-    includeThinking: Boolean(row.include_thinking),
-    reconnectMaxAttempts: 3,
-    reconnectBackoffMs: 300,
-    reconnectMaxBackoffMs: 30000,
-    heartbeatTimeoutMs: 45000,
-    logLevel: row.log_level,
-    revision: row.revision,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id, name: row.name, agentId: row.business_agent_id,
+    credentialConfigId: row.credential_config_id, credentialName: row.credential_name,
+    region: row.region, credentialsConfigured: true,
+    ...(secrets ? { secretId: row.secret_id, secretKey: row.secret_key } : {}),
+    controlTimeoutMs: row.control_timeout_ms, promptTimeoutMs: row.prompt_timeout_ms,
+    includeThinking: Boolean(row.include_thinking), revision: row.revision,
+    createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
-
+function listAgents(options) {
+  return db().prepare(`${AGENT_SELECT} ORDER BY a.name,a.created_at`).all().map((row) => agentFromRow(row, options));
+}
+function getAgent(id, options) {
+  return agentFromRow(db().prepare(`${AGENT_SELECT} WHERE a.id=?`).get(id), options);
+}
+function findAgentByBusinessId(agentId, credentialConfigId) {
+  return agentFromRow(db().prepare(`${AGENT_SELECT} WHERE a.business_agent_id=? AND a.credential_config_id=?`).get(String(agentId || "").trim(), credentialConfigId));
+}
+function saveAgent(input, id) {
+  const database = db();
+  const existing = id ? getAgent(id) : undefined;
+  if (id && !existing) throw new Error("WMA Agent configuration not found");
+  const credentialConfigId = text(input.credentialConfigId, "WMA credential configuration", { max: 100 });
+  if (!getWmaCredential(credentialConfigId)) throw new Error("Selected WMA credential configuration not found");
+  const agentId = text(input.agentId, "Agent ID", { max: 200 });
+  if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) throw new Error("Invalid WMA Agent ID");
+  const duplicate = findAgentByBusinessId(agentId, credentialConfigId);
+  if (duplicate && duplicate.id !== id) throw new Error("WMA Agent is already added for this credential");
+  const now = Date.now();
+  const recordId = id || crypto.randomUUID();
+  database.prepare(`
+    INSERT INTO wma_agents (id,name,business_agent_id,credential_config_id,control_timeout_ms,prompt_timeout_ms,include_thinking,revision,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,business_agent_id=excluded.business_agent_id,credential_config_id=excluded.credential_config_id,control_timeout_ms=excluded.control_timeout_ms,prompt_timeout_ms=excluded.prompt_timeout_ms,include_thinking=excluded.include_thinking,revision=excluded.revision,updated_at=excluded.updated_at
+  `).run(recordId,text(input.name || agentId,"Agent name",{max:100}),agentId,credentialConfigId,
+    positiveInteger(input.controlTimeoutMs,30000,"Control timeout"),positiveInteger(input.promptTimeoutMs,1200000,"Prompt timeout"),input.includeThinking?1:0,(existing?.revision||0)+1,existing?.createdAt||now,now);
+  return getAgent(recordId);
+}
+function deleteAgent(id) {
+  if (db().prepare("SELECT COUNT(*) AS count FROM wecom_bots WHERE agent_config_id=?").get(id).count) throw new Error("WMA Agent is still paired with one or more WeCom Bots");
+  if (!db().prepare("DELETE FROM wma_agents WHERE id=?").run(id).changes) throw new Error("WMA Agent configuration not found");
+}
+function resetAgentSessions(id) {
+  const database = db();
+  if (!getAgent(id)) throw new Error("WMA Agent configuration not found");
+  const cleared = database.prepare("DELETE FROM wma_conversations WHERE agent_config_id=?").run(id).changes;
+  database.prepare("UPDATE wma_agents SET revision=revision+1,updated_at=? WHERE id=?").run(Date.now(),id);
+  return { cleared, revision: getAgent(id).revision };
+}
 function botFromRow(row, { secrets = false } = {}) {
   if (!row) return undefined;
   return {
-    id: row.id,
-    name: row.name,
-    botId: row.bot_id,
-    ...(secrets ? { secret: storedSecret(row, "wecom_bots", "secret_cipher") } : { secretConfigured: true }),
-    cloudAgentId: row.cloud_agent_id,
-    cloudAgentName: row.cloud_agent_name,
-    enabled: Boolean(row.enabled),
-    showThinking: Boolean(row.show_thinking),
-    welcomeText: row.welcome_text,
-    placeholder: row.placeholder,
-    groupSessionScope: row.group_session_scope,
-    wsUrl: row.ws_url || "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id,name: row.name,botId: row.bot_id,
+    ...(secrets ? { secret: row.secret } : { secretConfigured: true }),
+    agentConfigId: row.agent_config_id || null,agentName: row.agent_name || "",
+    enabled: Boolean(row.enabled),showThinking: Boolean(row.show_thinking),
+    welcomeText: row.welcome_text,placeholder: row.placeholder,
+    groupSessionScope: row.group_session_scope,wsUrl: row.ws_url || "",
+    createdAt: row.created_at,updatedAt: row.updated_at,
   };
-}
-
-function listAgents(options) {
-  return db().prepare(`
-    SELECT a.*, k.name AS api_key_name
-    FROM cloud_agents a LEFT JOIN api_keys k ON k.id = a.api_key_config_id
-    ORDER BY a.name, a.created_at
-  `).all().map((row) => agentFromRow(row, options));
-}
-
-function getAgent(id, options) {
-  return agentFromRow(db().prepare(`
-    SELECT a.*, k.name AS api_key_name
-    FROM cloud_agents a LEFT JOIN api_keys k ON k.id = a.api_key_config_id
-    WHERE a.id = ?
-  `).get(id), options);
-}
-
-function findAgentByBusinessId(businessAgentId) {
-  const value = String(businessAgentId || "").trim();
-  if (!value) return undefined;
-  return agentFromRow(db().prepare("SELECT * FROM cloud_agents WHERE business_agent_id = ?").get(value));
-}
-
-function saveAgent(input, id) {
-  const database = db();
-  const existing = id ? database.prepare("SELECT * FROM cloud_agents WHERE id = ?").get(id) : undefined;
-  if (id && !existing) throw new Error("CloudAgent configuration not found");
-  const now = Date.now();
-  const apiKeyConfigId = input.apiKeyConfigId ? text(input.apiKeyConfigId, "API Key configuration", { max: 100 }) : "";
-  if (apiKeyConfigId && !database.prepare("SELECT id FROM api_keys WHERE id = ?").get(apiKeyConfigId)) {
-    throw new Error("Selected API Key configuration not found");
-  }
-  const apiKey = text(input.apiKey, "API Key", { required: !existing && !apiKeyConfigId, max: 2000 });
-  const apiKeyStored = apiKey || existing?.api_key_cipher || "";
-  if (!apiKeyConfigId && !apiKeyStored) throw new Error("API Key is required");
-  const record = {
-    id: existing?.id || crypto.randomUUID(),
-    name: text(input.name || input.agentId, "Agent name", { max: 100 }),
-    agentId: text(input.agentId, "Agent ID", { max: 200 }),
-    apiKeyConfigId: apiKeyConfigId || null,
-    apiKeyStored,
-    baseUrl: text(input.baseUrl || "https://www.codebuddy.cn/v2/agentos", "Base URL", { max: 500 }),
-    sourceApp: text(input.sourceApp || "wecom-cloudagent-gateway", "Source App", { max: 100 }),
-    runtimeNamePrefix: text(input.runtimeNamePrefix || "wecom", "Runtime name prefix", { max: 40 }),
-    manifestVersion: text(input.manifestVersion || "1.0", "Manifest version", { max: 30 }),
-    manifestJson: JSON.stringify(parseManifest(input.manifest)),
-    controlTimeoutMs: positiveInteger(input.controlTimeoutMs, 1200000, "Control timeout"),
-    promptTimeoutMs: positiveInteger(input.promptTimeoutMs, 1200000, "Prompt timeout"),
-    includeThinking: input.includeThinking ? 1 : 0,
-    logLevel: ["off", "error", "warn", "info", "debug"].includes(input.logLevel) ? input.logLevel : "warn",
-    revision: (existing?.revision || 0) + 1,
-  };
-  if (!/^agent[-_]/i.test(record.agentId)) throw new Error("Agent ID must start with agent_");
-  database.prepare(`
-    INSERT INTO cloud_agents (id,name,business_agent_id,api_key_cipher,api_key_config_id,base_url,source_app,runtime_name_prefix,manifest_version,manifest_json,control_timeout_ms,prompt_timeout_ms,include_thinking,log_level,revision,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,business_agent_id=excluded.business_agent_id,api_key_cipher=excluded.api_key_cipher,api_key_config_id=excluded.api_key_config_id,base_url=excluded.base_url,source_app=excluded.source_app,runtime_name_prefix=excluded.runtime_name_prefix,manifest_version=excluded.manifest_version,manifest_json=excluded.manifest_json,control_timeout_ms=excluded.control_timeout_ms,prompt_timeout_ms=excluded.prompt_timeout_ms,include_thinking=excluded.include_thinking,log_level=excluded.log_level,revision=excluded.revision,updated_at=excluded.updated_at
-  `).run(record.id, record.name, record.agentId, record.apiKeyStored, record.apiKeyConfigId, record.baseUrl, record.sourceApp, record.runtimeNamePrefix, record.manifestVersion, record.manifestJson, record.controlTimeoutMs, record.promptTimeoutMs, record.includeThinking, record.logLevel, record.revision, existing?.created_at || now, now);
-  return getAgent(record.id);
-}
-
-function deleteAgent(id) {
-  const refs = db().prepare("SELECT COUNT(*) AS count FROM wecom_bots WHERE cloud_agent_id = ?").get(id).count;
-  if (refs) throw new Error("CloudAgent is still paired with one or more WeCom Bots");
-  if (!db().prepare("DELETE FROM cloud_agents WHERE id = ?").run(id).changes) throw new Error("CloudAgent configuration not found");
-}
-
-function resetAgentSessions(id) {
-  const database = db();
-  if (!getAgent(id)) throw new Error("CloudAgent configuration not found");
-  const cleared = database.prepare("DELETE FROM conversations WHERE cloud_agent_id = ?").run(id).changes;
-  database.prepare("UPDATE cloud_agents SET revision = revision + 1, updated_at = ? WHERE id = ?").run(Date.now(), id);
-  return { cleared, revision: getAgent(id).revision };
-}
-
-function listKeys(options) {
-  return db().prepare("SELECT * FROM api_keys ORDER BY name, created_at").all().map((row) => keyFromRow(row, options));
-}
-
-function getKey(id, options) {
-  return keyFromRow(db().prepare("SELECT * FROM api_keys WHERE id = ?").get(id), options);
-}
-
-function saveKey(input, id) {
-  const database = db();
-  const existing = id ? database.prepare("SELECT * FROM api_keys WHERE id = ?").get(id) : undefined;
-  if (id && !existing) throw new Error("API Key configuration not found");
-  const apiKey = text(input.apiKey, "API Key", { required: !existing, max: 2000 });
-  const now = Date.now();
-  const record = {
-    id: existing?.id || crypto.randomUUID(),
-    name: text(input.name, "API Key name", { max: 100 }),
-    apiKeyStored: apiKey || existing.api_key_cipher,
-    baseUrl: text(input.baseUrl || "https://www.codebuddy.cn/v2/agentos", "Base URL", { max: 500 }),
-  };
-  const keyRotated = Boolean(existing) && record.apiKeyStored !== existing.api_key_cipher;
-  database.prepare(`
-    INSERT INTO api_keys (id,name,api_key_cipher,base_url,created_at,updated_at)
-    VALUES (?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,api_key_cipher=excluded.api_key_cipher,base_url=excluded.base_url,updated_at=excluded.updated_at
-  `).run(record.id, record.name, record.apiKeyStored, record.baseUrl, existing?.created_at || now, now);
-  if (keyRotated) {
-    // Rotating the key value must invalidate cached SDK clients and rotate
-    // session namespaces for agents that resolve credentials from this key.
-    database.prepare("UPDATE cloud_agents SET revision = revision + 1, updated_at = ? WHERE api_key_config_id = ?").run(now, record.id);
-  }
-  return getKey(record.id);
-}
-
-function deleteKey(id) {
-  const refs = db().prepare("SELECT COUNT(*) AS count FROM cloud_agents WHERE api_key_config_id = ?").get(id).count;
-  if (refs) throw new Error("API Key is still used by one or more CloudAgents");
-  if (!db().prepare("DELETE FROM api_keys WHERE id = ?").run(id).changes) throw new Error("API Key configuration not found");
 }
 
 function credentialFromRow(row, { secrets = false } = {}) {
@@ -299,27 +197,27 @@ function deleteTencentCredential(id) {
 }
 
 function listBots(options) {
-  return db().prepare(`SELECT b.*, a.name AS cloud_agent_name FROM wecom_bots b JOIN cloud_agents a ON a.id=b.cloud_agent_id ORDER BY b.name,b.created_at`).all().map((row) => botFromRow(row, options));
+  return db().prepare(`SELECT b.*, a.name AS agent_name FROM wecom_bots b LEFT JOIN wma_agents a ON a.id=b.agent_config_id ORDER BY b.name,b.created_at`).all().map((row) => botFromRow(row, options));
 }
 
 function getBot(id, options) {
-  return botFromRow(db().prepare(`SELECT b.*, a.name AS cloud_agent_name FROM wecom_bots b JOIN cloud_agents a ON a.id=b.cloud_agent_id WHERE b.id=?`).get(id), options);
+  return botFromRow(db().prepare(`SELECT b.*, a.name AS agent_name FROM wecom_bots b LEFT JOIN wma_agents a ON a.id=b.agent_config_id WHERE b.id=?`).get(id), options);
 }
 
 function saveBot(input, id) {
   const database = db();
   const existing = id ? database.prepare("SELECT * FROM wecom_bots WHERE id = ?").get(id) : undefined;
   if (id && !existing) throw new Error("WeCom Bot configuration not found");
-  const agentId = text(input.cloudAgentId, "CloudAgent pairing", { max: 100 });
-  if (!getAgent(agentId)) throw new Error("Selected CloudAgent configuration not found");
+  const agentId = text(input.agentConfigId, "WMA Agent pairing", { max: 100 });
+  if (!getAgent(agentId)) throw new Error("Selected WMA Agent configuration not found");
   const secret = text(input.secret, "Bot Secret", { required: !existing, max: 2000 });
   const now = Date.now();
   const record = {
     id: existing?.id || crypto.randomUUID(),
     name: text(input.name, "Bot name", { max: 100 }),
     botId: text(input.botId, "Bot ID", { max: 200 }),
-    secretStored: secret || existing.secret_cipher,
-    cloudAgentId: agentId,
+    secretStored: secret || existing.secret,
+    agentConfigId: agentId,
     enabled: input.enabled === false ? 0 : 1,
     showThinking: input.showThinking === undefined ? (existing?.show_thinking ?? 1) : (input.showThinking === false ? 0 : 1),
     welcomeText: text(input.welcomeText || "你好，我是企业智能助手。发送 /new 可以开始一个新会话。", "Welcome text", { max: 2000 }),
@@ -328,10 +226,10 @@ function saveBot(input, id) {
     wsUrl: text(input.wsUrl, "WebSocket URL", { required: false, max: 500 }) || null,
   };
   database.prepare(`
-    INSERT INTO wecom_bots (id,name,bot_id,secret_cipher,cloud_agent_id,enabled,show_thinking,welcome_text,placeholder,group_session_scope,ws_url,created_at,updated_at)
+    INSERT INTO wecom_bots (id,name,bot_id,secret,agent_config_id,enabled,show_thinking,welcome_text,placeholder,group_session_scope,ws_url,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,bot_id=excluded.bot_id,secret_cipher=excluded.secret_cipher,cloud_agent_id=excluded.cloud_agent_id,enabled=excluded.enabled,show_thinking=excluded.show_thinking,welcome_text=excluded.welcome_text,placeholder=excluded.placeholder,group_session_scope=excluded.group_session_scope,ws_url=excluded.ws_url,updated_at=excluded.updated_at
-  `).run(record.id, record.name, record.botId, record.secretStored, record.cloudAgentId, record.enabled, record.showThinking, record.welcomeText, record.placeholder, record.groupSessionScope, record.wsUrl, existing?.created_at || now, now);
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,bot_id=excluded.bot_id,secret=excluded.secret,agent_config_id=excluded.agent_config_id,enabled=excluded.enabled,show_thinking=excluded.show_thinking,welcome_text=excluded.welcome_text,placeholder=excluded.placeholder,group_session_scope=excluded.group_session_scope,ws_url=excluded.ws_url,updated_at=excluded.updated_at
+  `).run(record.id, record.name, record.botId, record.secretStored, record.agentConfigId, record.enabled, record.showThinking, record.welcomeText, record.placeholder, record.groupSessionScope, record.wsUrl, existing?.created_at || now, now);
   return getBot(record.id);
 }
 
@@ -343,8 +241,8 @@ function deleteBot(id) {
 
 function pairForBot(id) {
   const bot = getBot(id, { secrets: true });
-  if (!bot) return undefined;
-  const agent = getAgent(bot.cloudAgentId, { secrets: true });
+  if (!bot?.agentConfigId) return undefined;
+  const agent = getAgent(bot.agentConfigId, { secrets: true });
   if (!agent) return undefined;
   return { bot, agent, pairKey: `${bot.id}:${agent.id}:r${agent.revision}` };
 }
@@ -352,21 +250,21 @@ function pairForBot(id) {
 module.exports = {
   deleteAgent,
   deleteBot,
-  deleteKey,
+  deleteWmaCredential,
   deleteTencentCredential,
   findAgentByBusinessId,
   getAgent,
   getBot,
-  getKey,
+  getWmaCredential,
   getTencentCredential,
   listAgents,
   listBots,
-  listKeys,
+  listWmaCredentials,
   listTencentCredentials,
   pairForBot,
   resetAgentSessions,
   saveAgent,
   saveBot,
-  saveKey,
+  saveWmaCredential,
   saveTencentCredential,
 };

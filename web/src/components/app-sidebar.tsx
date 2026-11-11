@@ -24,14 +24,14 @@ const NAV_GROUPS: Array<{
   {
     label: 'Agent配置',
     items: [
-      { key: 'agents', label: 'Cloud Agent', icon: Bot },
+      { key: 'agents', label: 'WMA Agent', icon: Bot },
       { key: 'pairings', label: '企业微信 Bot 配对', icon: ArrowLeftRight },
     ],
   },
   {
     label: '凭证管理',
     items: [
-      { key: 'keys', label: 'WorkBuddy API Key', icon: KeyRound },
+      { key: 'wma-credentials', label: 'WMA 凭证设置', icon: KeyRound },
       { key: 'tencent-credentials', label: '腾讯云凭证', icon: CloudCog },
     ],
   },
@@ -60,7 +60,7 @@ export function AppSidebar({
               />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">消息网关</span>
-                <span className="truncate text-xs text-muted-foreground">CloudAgent Gateway</span>
+                <span className="truncate text-xs text-muted-foreground">Agent Gateway</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>

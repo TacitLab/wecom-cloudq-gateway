@@ -15,7 +15,7 @@ function jsonResponse(body, ok = true) {
 }
 
 test.beforeEach(() => {
-  db().exec("DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents;");
+  db().exec("DELETE FROM wma_tasks; DELETE FROM wma_conversations; DELETE FROM wecom_bots; DELETE FROM wma_agents;");
 });
 
 test("createSession returns the auth URL without exposing the scode", async () => {
@@ -91,7 +91,7 @@ test("unknown or expired sessions report expired and completion is idempotent", 
 });
 
 test("completed pairing credentials create a working Bot pairing", async () => {
-  const agent = registry.saveAgent({ name: "SRE", agentId: "agent_SCAN", apiKey: "pt_scan" });
+  const agent = registry.saveAgent({ credentialConfigId: registry.saveWmaCredential({ name: "WMA test", secretId: "AKID_test", secretKey: "test-secret" }).id, name: "SRE", agentId: "agent_SCAN", });
   const session = await pairing.createSession({
     fetchImpl: async () => jsonResponse({ data: { scode: "s", auth_url: "u" } }),
   });
@@ -103,9 +103,9 @@ test("completed pairing credentials create a working Bot pairing", async () => {
     name: credentials.botName || "扫码创建的机器人",
     botId: credentials.botId,
     secret: credentials.secret,
-    cloudAgentId: agent.id,
+    agentConfigId: agent.id,
   });
   const pair = registry.pairForBot(bot.id);
   assert.equal(pair.bot.secret, "scan-secret");
-  assert.equal(pair.agent.apiKey, "pt_scan");
+  assert.equal(pair.agent.secretKey, "test-secret");
 });

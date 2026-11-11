@@ -1,5 +1,5 @@
 import { ChevronsUpDown, RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { AdvancedSection } from '@/components/advanced-section'
@@ -28,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { toastTask } from '@/lib/toast-task'
 import type { AdminState, AgentConfig, RemoteAgent } from '@/lib/types'
@@ -50,68 +49,67 @@ export function AgentForm({
   formId?: string
   hideFooter?: boolean
 }) {
-  const keys = state?.apiKeys ?? []
-  const [apiKeyConfigId, setApiKeyConfigId] = useState('')
+  const keys = state?.wmaCredentials ?? []
+  const [credentialConfigId, setCredentialConfigId] = useState('')
   const [remoteAgents, setRemoteAgents] = useState<RemoteAgent[]>([])
   const [agentId, setAgentId] = useState('')
   const [name, setName] = useState('')
-  const [baseUrl, setBaseUrl] = useState('https://www.codebuddy.cn/v2/agentos')
-  const [sourceApp, setSourceApp] = useState('wecom-cloudagent-gateway')
-  const [runtimeNamePrefix, setRuntimeNamePrefix] = useState('wecom')
-  const [controlTimeoutMs, setControlTimeoutMs] = useState('1200000')
+  const [controlTimeoutMs, setControlTimeoutMs] = useState('30000')
   const [promptTimeoutMs, setPromptTimeoutMs] = useState('1200000')
-  const [manifest, setManifest] = useState('{}')
   const [includeThinking, setIncludeThinking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const requestVersion = useRef(0)
+  const selectedKey = keys.find((key) => key.id === credentialConfigId)
 
   useEffect(() => {
-    setApiKeyConfigId(record?.apiKeyConfigId ?? state?.apiKeys[0]?.id ?? '')
+    requestVersion.current += 1
+    setCredentialConfigId(record ? record.credentialConfigId ?? '' : state?.wmaCredentials[0]?.id ?? '')
     setRemoteAgents([])
     setAgentId(record?.agentId ?? '')
     setName(record?.name ?? '')
-    setBaseUrl(record?.baseUrl ?? 'https://www.codebuddy.cn/v2/agentos')
-    setSourceApp(record?.sourceApp ?? 'wecom-cloudagent-gateway')
-    setRuntimeNamePrefix(record?.runtimeNamePrefix ?? 'wecom')
-    setControlTimeoutMs(String(record?.controlTimeoutMs ?? 1200000))
+    setControlTimeoutMs(String(record?.controlTimeoutMs ?? 30000))
     setPromptTimeoutMs(String(record?.promptTimeoutMs ?? 1200000))
-    setManifest(JSON.stringify(record?.manifest ?? {}, null, 2))
     setIncludeThinking(Boolean(record?.includeThinking))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record])
 
   async function pullAgents() {
-    if (!apiKeyConfigId) return
+    if (!credentialConfigId) return
+    const version = ++requestVersion.current
+    setRemoteAgents([])
     setPulling(true)
     try {
       const r = await toastTask(
-        api<{ items: RemoteAgent[] }>(`/api/admin/keys/${apiKeyConfigId}/agents`, {
+        api<{ items: RemoteAgent[] }>(`/api/admin/wma-credentials/${credentialConfigId}/agents`, {
           method: 'POST',
           body: '{}',
         }),
         '正在拉取 Agent 列表…',
         (r) => `已拉取 ${(r.items ?? []).filter((x) => x.enabled).length} 个可用 Agent`,
       )
+      if (version !== requestVersion.current) return
       const items = (r.items ?? []).filter((x) => x.enabled)
       if (!items.length) {
         setRemoteAgents([])
-        toast.warning('未拉到任何可用 Agent——请确认使用的是 WorkBuddy API Key，而非个人 PAT（pt_ 开头）')
+        toast.warning('未发现可用 Agent，请检查腾讯云凭证的 WMA 权限及 Agent 的公网 API 设置')
         return
       }
       setRemoteAgents(items)
     } catch {
       // 错误已由 toastTask 提示
     } finally {
-      setPulling(false)
+      if (version === requestVersion.current) setPulling(false)
     }
   }
 
-  // 选中企业 Key 后自动拉取一次（编辑已有配置时不自动拉）
+  // Editing and changing keys both refresh the list in the selected tenant.
   useEffect(() => {
-    if (apiKeyConfigId && !record) void pullAgents()
+    if (credentialConfigId) void pullAgents()
+    return () => { requestVersion.current += 1 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKeyConfigId])
+  }, [credentialConfigId])
 
   function pickRemote(value: string) {
     const picked = remoteAgents.find((x) => x.agentId === value)
@@ -122,13 +120,9 @@ export function AgentForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (pulling || saving) return
     if (!agentId) return toast.error('请先从 Agent 列表中选择要绑定的 Agent')
-    let parsedManifest: Record<string, unknown>
-    try {
-      parsedManifest = JSON.parse(manifest || '{}')
-    } catch {
-      return toast.error('启动 Manifest 不是合法 JSON')
-    }
+    if (!remoteAgents.some((agent) => agent.agentId === agentId)) return toast.error('请从当前凭证的 Agent 列表重新选择')
     setSaving(true)
     try {
       const id = record?.id
@@ -137,20 +131,16 @@ export function AgentForm({
           method: id ? 'PUT' : 'POST',
           body: JSON.stringify({
             id,
-            apiKeyConfigId,
+            credentialConfigId,
             agentId,
             name,
-            baseUrl,
-            sourceApp,
-            runtimeNamePrefix,
             controlTimeoutMs: Number(controlTimeoutMs),
             promptTimeoutMs: Number(promptTimeoutMs),
-            manifest: parsedManifest,
             includeThinking,
           }),
         }),
         '保存中…',
-        'CloudAgent 已保存',
+        'Agent 已保存',
       )
       await onSaved()
     } catch {
@@ -163,7 +153,7 @@ export function AgentForm({
   if (!keys.length && !record) {
     return (
       <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
-        尚未配置 WorkBuddy API Key，请先在「凭证管理」中添加后再来连接 Cloud Agent。
+        尚未配置 WMA 凭证，请先在「WMA 凭证设置」中录入腾讯云 AK/SK。
       </div>
     )
   }
@@ -171,8 +161,14 @@ export function AgentForm({
   return (
     <form id={formId} onSubmit={submit} className="flex flex-col gap-4">
       <div className="grid gap-2">
-        <Label>WorkBuddy API Key</Label>
-        <Select value={apiKeyConfigId} onValueChange={(v) => setApiKeyConfigId(v ?? '')}>
+        <Label>WMA 凭证</Label>
+        <Select value={credentialConfigId} onValueChange={(v) => {
+          requestVersion.current += 1
+          setRemoteAgents([])
+          setAgentId('')
+          setName('')
+          setCredentialConfigId(v ?? '')
+        }}>
           <SelectTrigger>
             <SelectValue>
               {(v) => keys.find((k) => k.id === v)?.name ?? v}
@@ -186,6 +182,7 @@ export function AgentForm({
             ))}
           </SelectContent>
         </Select>
+        {selectedKey && <p className="text-xs text-muted-foreground">腾讯云 API 接入地域：{selectedKey.region}</p>}
       </div>
 
       <div className="grid gap-2">
@@ -196,7 +193,7 @@ export function AgentForm({
             variant="ghost"
             size="icon-xs"
             onClick={pullAgents}
-            disabled={pulling || !apiKeyConfigId}
+            disabled={pulling || !credentialConfigId}
             aria-label="刷新 Agent 列表"
           >
             <RefreshCw className={pulling ? 'animate-spin' : undefined} />
@@ -209,6 +206,7 @@ export function AgentForm({
                 type="button"
                 variant="outline"
                 className="w-full justify-between font-normal"
+                disabled={pulling || !credentialConfigId}
               />
             }
           >
@@ -242,7 +240,7 @@ export function AgentForm({
                     <CommandItem
                       key={x.agentId}
                       value={`${x.agentName || ''} ${x.agentId}`}
-                      disabled={Boolean(x.existingConfigId)}
+                      disabled={Boolean(x.existingConfigId && x.existingConfigId !== record?.id)}
                       onSelect={() => {
                         pickRemote(x.agentId)
                         setPickerOpen(false)
@@ -252,7 +250,7 @@ export function AgentForm({
                       <span className="shrink-0 font-mono text-xs text-muted-foreground">
                         {x.agentId}
                       </span>
-                      {x.existingConfigId && (
+                      {x.existingConfigId && x.existingConfigId !== record?.id && (
                         <Badge variant="secondary" className="shrink-0 text-[10px]">
                           已添加
                         </Badge>
@@ -279,19 +277,7 @@ export function AgentForm({
 
       <AdvancedSection>
         <div className="flex flex-col gap-4">
-          <div className="grid gap-2">
-            <Label>AgentOS Base URL</Label>
-            <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-          </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>Source App</Label>
-              <Input value={sourceApp} onChange={(e) => setSourceApp(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Runtime 前缀</Label>
-              <Input value={runtimeNamePrefix} onChange={(e) => setRuntimeNamePrefix(e.target.value)} />
-            </div>
             <div className="grid gap-2">
               <Label>控制超时（毫秒）</Label>
               <Input type="number" value={controlTimeoutMs} onChange={(e) => setControlTimeoutMs(e.target.value)} />
@@ -300,14 +286,6 @@ export function AgentForm({
               <Label>对话超时（毫秒）</Label>
               <Input type="number" value={promptTimeoutMs} onChange={(e) => setPromptTimeoutMs(e.target.value)} />
             </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>启动 Manifest JSON</Label>
-            <Textarea
-              className="min-h-24 font-mono text-xs"
-              value={manifest}
-              onChange={(e) => setManifest(e.target.value)}
-            />
           </div>
           <label className="flex items-center gap-2 text-sm font-medium">
             <Checkbox checked={includeThinking} onCheckedChange={(v) => setIncludeThinking(v === true)} />
@@ -323,7 +301,7 @@ export function AgentForm({
               取消
             </Button>
           )}
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving || pulling || !agentId || (!remoteAgents.some((agent) => agent.agentId === agentId))}>
             {saving ? '保存中…' : submitLabel}
           </Button>
         </div>

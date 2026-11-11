@@ -35,7 +35,8 @@ function integrationFromRow(row, { secrets = false } = {}) {
     name: row.name,
     botConfigId: row.bot_config_id,
     botName: row.bot_name,
-    cloudAgentName: row.cloud_agent_name,
+    agentName: row.agent_name || "",
+    agentConfigId: row.bound_agent_id || null,
     credentialId: row.credential_id || null,
     credentialName: row.credential_name || null,
     diagnosticCredentialId: row.diagnostic_credential_id || null,
@@ -66,10 +67,10 @@ function integrationFromRow(row, { secrets = false } = {}) {
 }
 
 const INTEGRATION_SELECT = `
-  SELECT i.*, b.name AS bot_name, a.name AS cloud_agent_name, c.name AS credential_name, d.name AS diagnostic_credential_name
+  SELECT i.*, b.agent_config_id AS bound_agent_id, b.name AS bot_name, a.name AS agent_name, c.name AS credential_name, d.name AS diagnostic_credential_name
   FROM alert_integrations i
   JOIN wecom_bots b ON b.id=i.bot_config_id
-  JOIN cloud_agents a ON a.id=b.cloud_agent_id
+  LEFT JOIN wma_agents a ON a.id=b.agent_config_id
   LEFT JOIN tencent_credentials c ON c.id=i.credential_id
   LEFT JOIN tencent_credentials d ON d.id=i.diagnostic_credential_id
 `;
@@ -192,7 +193,7 @@ function updatePollState(id, { attemptedAt, succeededAt, error }) {
 }
 
 function dueIntegrations(now = Date.now()) {
-  return listIntegrations({ secrets: true }).filter((item) => item.enabled && item.targetChatId &&
+  return listIntegrations({ secrets: true }).filter((item) => item.enabled && item.agentConfigId && item.targetChatId &&
     (!item.lastAttemptAt || now - item.lastAttemptAt >= item.pollIntervalSeconds * 1000));
 }
 
@@ -211,7 +212,6 @@ function jobFromRow(row) {
     answer: row.answer,
     textDelivered: Boolean(row.text_delivered),
     attachmentError: row.attachment_error || "",
-    runtimeId: row.runtime_id,
     sessionId: row.session_id,
     status: row.status,
     attemptCount: row.attempt_count,
@@ -260,7 +260,7 @@ function nextJob(now = Date.now()) {
 
 function updateJob(id, patch) {
   const allowed = {
-    prompt: "prompt", answer: "answer", runtimeId: "runtime_id", sessionId: "session_id",
+    prompt: "prompt", answer: "answer", sessionId: "session_id",
     status: "status", attemptCount: "attempt_count", nextAttemptAt: "next_attempt_at", error: "error",
     textDelivered: "text_delivered", attachmentError: "attachment_error",
   };

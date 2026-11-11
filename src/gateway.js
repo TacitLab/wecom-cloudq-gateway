@@ -61,7 +61,7 @@ async function handleMessage(botConfigId, client, frame) {
   const externalMsgId = String(message.msgid || frame?.headers?.req_id || generateReqId("msg"));
   const claimed = store.enqueueTask({
     botConfigId: pair.bot.id,
-    cloudAgentId: pair.agent.id,
+    agentConfigId: pair.agent.id,
     conversationKey,
     externalMsgId,
     frame,

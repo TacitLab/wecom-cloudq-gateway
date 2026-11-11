@@ -60,7 +60,7 @@ class BotManager {
   }
 
   sync() {
-    const desired = new Map(registry.listBots({ secrets: true }).filter((bot) => bot.enabled).map((bot) => [bot.id, bot]));
+    const desired = new Map(registry.listBots({ secrets: true }).filter((bot) => bot.enabled && bot.agentConfigId).map((bot) => [bot.id, bot]));
     for (const [id, entry] of this.connections) {
       const bot = desired.get(id);
       if (!bot || entry.fingerprint !== this.fingerprint(bot)) {

@@ -1,29 +1,67 @@
 "use strict";
-
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
+const { DatabaseSync } = require("node:sqlite");
 process.env.ADMIN_PASSWORD = "test-admin-password";
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gateway-migration-"));
-process.env.SQLITE_PATH = path.join(directory, "gateway.db");
 const { db, closeDatabase } = require("../src/database");
 const registry = require("../src/registry");
-
-test.after(() => {
-  closeDatabase();
-  fs.rmSync(directory, { recursive: true, force: true });
+const alerts = require("../src/alert-store");
+const { BotManager } = require("../src/bot-manager");
+let temp;
+test.beforeEach(() => { closeDatabase(); temp = fs.mkdtempSync("/tmp/wma-storage-"); process.env.SQLITE_PATH = temp + "/gateway.db"; });
+test.afterEach(() => { closeDatabase(); fs.rmSync(temp, { recursive: true, force: true }); });
+test("fresh storage creates WMA tables without retired Agent tables or columns", () => {
+  const tables = db().prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+  for (const t of ["wma_credentials", "wma_agents", "wma_conversations", "wma_tasks"]) assert.ok(tables.includes(t));
+  for (const t of ["api_keys", "cloud_agents", "conversations", "tasks"]) assert.ok(!tables.includes(t));
+  const columns = db().prepare("PRAGMA table_info(wma_agents)").all().map((r) => r.name);
+  for (const c of ["provider", "api_key_cipher", "manifest_json", "runtime_name_prefix"]) assert.ok(!columns.includes(c));
 });
-
-test("upgrades existing Bot configurations with thinking visible by default", () => {
-  const agent = registry.saveAgent({ name: "Agent", agentId: "agent_MIGRATE", apiKey: "pt_test" });
-  const bot = registry.saveBot({ name: "Legacy Bot", botId: "legacy", secret: "secret", cloudAgentId: agent.id });
-  db().exec("ALTER TABLE wecom_bots DROP COLUMN show_thinking");
+test("cutover retains Bot and alert settings; no old Agents are imported; rebinding resumes polling", () => {
+  const key = registry.saveWmaCredential({ name: "Test", secretId: "AKID_test", secretKey: "test-secret" });
+  const a = registry.saveAgent({ name: "Test", agentId: "01TEST", credentialConfigId: key.id });
+  const bot = registry.saveBot({ name: "Retained Bot", botId: "bot-retained", secret: "keep-bot-secret", agentConfigId: a.id, showThinking: false });
+  const c = registry.saveTencentCredential({ name: "Monitor", secretId: "AKID_monitor", secretKey: "monitor-secret" });
+  const integration = alerts.saveIntegration({ name: "Retained rule", botConfigId: bot.id, credentialId: c.id, region: "ap-guangzhou", promptTemplate: "保留诊断规则" });
+  alerts.bindChat(integration.bindCode, bot.id, "retained-chat");
+  alerts.enqueueHistory(integration.id, { AlarmId: "old-pending", AlarmStatus: "ALARM" });
   closeDatabase();
-  assert.equal(registry.getBot(bot.id).showThinking, true);
-  registry.saveBot({ ...bot, secret: "", showThinking: false }, bot.id);
+  const raw = new DatabaseSync(process.env.SQLITE_PATH);
+  raw.exec(`
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE cloud_agents (id TEXT PRIMARY KEY);
+    INSERT INTO cloud_agents VALUES ('old-agent');
+    CREATE TABLE api_keys (id TEXT PRIMARY KEY);
+    INSERT INTO api_keys VALUES ('old-key');
+    CREATE TABLE saved_bots (id TEXT PRIMARY KEY,name TEXT,bot_id TEXT,secret_cipher TEXT,cloud_agent_id TEXT NOT NULL REFERENCES cloud_agents(id),enabled INTEGER,show_thinking INTEGER,welcome_text TEXT,placeholder TEXT,group_session_scope TEXT,ws_url TEXT,created_at INTEGER,updated_at INTEGER);
+    INSERT INTO saved_bots SELECT id,name,bot_id,secret,'old-agent',enabled,show_thinking,welcome_text,placeholder,group_session_scope,ws_url,created_at,updated_at FROM wecom_bots;
+    DROP TABLE wecom_bots;
+    ALTER TABLE saved_bots RENAME TO wecom_bots;
+    DELETE FROM wma_agents;
+    DELETE FROM wma_credentials;
+  `);
+  raw.close();
+  const retained = registry.getBot(bot.id, { secrets: true });
+  assert.equal(retained.secret, "keep-bot-secret");
+  assert.equal(retained.showThinking, false);
+  assert.equal(retained.agentConfigId, null);
+  assert.equal(registry.listAgents().length, 0);
+  assert.equal(registry.listWmaCredentials().length, 0);
+  assert.equal(registry.pairForBot(bot.id), undefined);
+  assert.deepEqual(new BotManager().sync(), {});
+  const rule = alerts.getIntegration(integration.id);
+  assert.equal(rule.promptTemplate, "保留诊断规则");
+  assert.equal(rule.targetChatId, "retained-chat");
+  assert.equal(rule.enabled, true);
+  assert.equal(alerts.dueIntegrations().length, 0);
+  assert.equal(alerts.listJobs()[0].status, "failed");
+  assert.equal(db().prepare("SELECT COUNT(*) AS count FROM cloud_agents").get().count, 1);
+  assert.deepEqual(db().prepare("PRAGMA foreign_key_check").all(), []);
+  const nextKey = registry.saveWmaCredential({ name: "New", secretId: "AKID_new", secretKey: "new-secret" });
+  const next = registry.saveAgent({ agentId: "01NEW", credentialConfigId: nextKey.id });
+  registry.saveBot({ ...retained, secret: "", agentConfigId: next.id }, bot.id);
+  assert.equal(alerts.dueIntegrations().length, 1);
   closeDatabase();
-  assert.equal(registry.getBot(bot.id).showThinking, false);
+  assert.equal(registry.getBot(bot.id).agentConfigId, next.id);
 });

@@ -34,7 +34,7 @@ export function BotScanForm({
   onCancel?: () => void
 }) {
   const [name, setName] = useState('智能助手')
-  const [cloudAgentId, setCloudAgentId] = useState('')
+  const [agentConfigId, setAgentConfigId] = useState('')
   const [showThinking, setShowThinking] = useState(true)
   const [session, setSession] = useState<ScanSession | null>(null)
   const [status, setStatus] = useState<ScanStatus>('pending')
@@ -44,7 +44,7 @@ export function BotScanForm({
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    if (!cloudAgentId && state?.agents[0]?.id) setCloudAgentId(state.agents[0].id)
+    if (!agentConfigId && state?.agents[0]?.id) setAgentConfigId(state.agents[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
 
@@ -99,7 +99,7 @@ export function BotScanForm({
       await toastTask(
         api(`/api/admin/wecom-pairing/${session.pairingId}/complete`, {
           method: 'POST',
-          body: JSON.stringify({ name, cloudAgentId, showThinking }),
+          body: JSON.stringify({ name, agentConfigId, showThinking }),
         }),
         '正在完成配对…',
         'Bot 配对已创建，连接正在同步',
@@ -120,8 +120,8 @@ export function BotScanForm({
           <Input required maxLength={100} placeholder="运维助手" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="grid gap-2">
-          <Label>绑定 CloudAgent</Label>
-          <Select value={cloudAgentId} onValueChange={(v) => setCloudAgentId(v ?? '')}>
+          <Label>绑定 Agent</Label>
+          <Select value={agentConfigId} onValueChange={(v) => setAgentConfigId(v ?? '')}>
             <SelectTrigger>
               <SelectValue>
                 {(v) => state?.agents.find((a) => a.id === v)?.name ?? v}
@@ -170,7 +170,7 @@ export function BotScanForm({
               <>
                 <span className="font-medium text-green-600">已创建机器人{pairedBotName ? `「${pairedBotName}」` : ''}</span>
                 <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-xs">{pairedBotId}</code>
-                <span className="text-muted-foreground">确认上方名称与绑定的 CloudAgent 后，点击“完成配对”。</span>
+                <span className="text-muted-foreground">确认上方名称与绑定的 Agent 后，点击“完成配对”。</span>
               </>
             )}
           </div>
@@ -184,7 +184,7 @@ export function BotScanForm({
           </Button>
         )}
         {status === 'paired' && (
-          <Button onClick={complete} disabled={busy || !name || !cloudAgentId}>
+          <Button onClick={complete} disabled={busy || !name || !agentConfigId}>
             {busy ? '配对中…' : '完成配对'}
           </Button>
         )}

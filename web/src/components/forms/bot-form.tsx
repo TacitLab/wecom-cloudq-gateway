@@ -34,7 +34,7 @@ export function BotForm({
   hideFooter?: boolean
 }) {
   const [name, setName] = useState('')
-  const [cloudAgentId, setCloudAgentId] = useState('')
+  const [agentConfigId, setAgentConfigId] = useState('')
   const [botId, setBotId] = useState('')
   const [secret, setSecret] = useState('')
   const [groupSessionScope, setGroupSessionScope] = useState<'chat' | 'user'>('chat')
@@ -47,7 +47,7 @@ export function BotForm({
 
   useEffect(() => {
     setName(record?.name ?? '')
-    setCloudAgentId(record?.cloudAgentId ?? state?.agents[0]?.id ?? '')
+    setAgentConfigId(record?.agentConfigId ?? state?.agents[0]?.id ?? '')
     setBotId(record?.botId ?? '')
     setSecret('')
     setGroupSessionScope(record?.groupSessionScope ?? 'chat')
@@ -70,7 +70,7 @@ export function BotForm({
           body: JSON.stringify({
             id,
             name,
-            cloudAgentId,
+            agentConfigId,
             botId,
             secret,
             groupSessionScope,
@@ -99,8 +99,8 @@ export function BotForm({
         <Input required maxLength={100} placeholder="运维助手" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
       <div className="grid gap-2">
-        <Label>绑定 CloudAgent</Label>
-        <Select value={cloudAgentId} onValueChange={(v) => setCloudAgentId(v ?? '')}>
+        <Label>绑定 Agent</Label>
+        <Select value={agentConfigId} onValueChange={(v) => setAgentConfigId(v ?? '')}>
           <SelectTrigger>
             <SelectValue>
               {(v) => state?.agents.find((a) => a.id === v)?.name ?? v}

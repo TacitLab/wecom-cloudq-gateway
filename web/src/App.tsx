@@ -8,19 +8,19 @@ import { Button } from '@/components/ui/button'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AgentsView } from '@/components/views/agents-view'
 import { AlertsView } from '@/components/views/alerts-view'
-import { KeysView } from '@/components/views/keys-view'
+import { WmaCredentialsView } from '@/components/views/wma-credentials-view'
 import { TencentCredentialsView } from '@/components/views/tencent-credentials-view'
 import { PairingsView } from '@/components/views/pairings-view'
 import { AgentDialog } from '@/components/dialogs/agent-dialog'
 import { AlertDialogForm } from '@/components/dialogs/alert-dialog'
 import { BotDialog } from '@/components/dialogs/bot-dialog'
-import { KeyDialog } from '@/components/dialogs/key-dialog'
+import { WmaCredentialDialog } from '@/components/dialogs/wma-credential-dialog'
 import { TencentCredentialDialog } from '@/components/dialogs/tencent-credential-dialog'
 import { useAdminState } from '@/lib/use-admin-state'
 import { isEmptyState, parseView, type ViewKey } from '@/lib/views'
 import { OnboardingPage } from '@/components/views/onboarding-view'
 
-type DialogKind = 'agent' | 'key' | 'tencent' | 'bot' | 'alert'
+type DialogKind = 'agent' | 'wma-credential' | 'tencent' | 'bot' | 'alert'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>(() => parseView(location.hash) ?? 'pairings')
@@ -59,7 +59,7 @@ export default function App() {
 
   function openDialog(kind: DialogKind, id?: string) {
     if (kind === 'bot' && state && state.agents.length === 0)
-      return toast.error('请先新增 CloudAgent')
+      return toast.error('请先新增 Agent')
     if (kind === 'alert' && state && state.bots.length === 0)
       return toast.error('请先创建 Bot–Agent 配对')
     if (kind === 'alert' && !id && state && state.tencentCredentials.length === 0)
@@ -94,8 +94,8 @@ export default function App() {
                 {view === 'agents' && (
                   <AgentsView state={state} reload={reload} onEdit={(id) => openDialog('agent', id)} />
                 )}
-                {view === 'keys' && (
-                  <KeysView state={state} reload={reload} onEdit={(id) => openDialog('key', id)} />
+                {view === 'wma-credentials' && (
+                  <WmaCredentialsView state={state} reload={reload} onEdit={(id) => openDialog('wma-credential', id)} />
                 )}
                 {view === 'tencent-credentials' && (
                   <TencentCredentialsView
@@ -132,9 +132,9 @@ export default function App() {
         onOpenChange={(open) => !open && setDialog(null)}
         onSaved={reload}
       />
-      <KeyDialog
-        open={dialog?.kind === 'key'}
-        record={state?.apiKeys.find((k) => k.id === dialog?.id)}
+      <WmaCredentialDialog
+        open={dialog?.kind === 'wma-credential'}
+        record={state?.wmaCredentials.find((k) => k.id === dialog?.id)}
         onOpenChange={(open) => !open && setDialog(null)}
         onSaved={reload}
       />

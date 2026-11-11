@@ -3,170 +3,28 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  CloudAgentAdapter,
+  AgentAdapter,
   ConversationUnavailableError,
   createAgentTextFormatter,
   finalizeAgentText,
   isConversationUnavailable,
-  safeRuntimeName,
-} = require("../src/cloudagent");
+} = require("../src/agent");
 
 function config(overrides = {}) {
   return {
     agentId: "agent-1",
-    apiKey: "pt_test",
-    baseUrl: "https://mock.local/v2/agentos",
-    sourceApp: "wecom-test",
-    agentName: "Test Agent",
-    manifestVersion: "1.0",
-    manifest: {},
-    runtimeNamePrefix: "wecom",
+
     controlTimeoutMs: 5000,
     promptTimeoutMs: 10000,
     includeThinking: false,
-    reconnectMaxAttempts: 3,
-    reconnectBackoffMs: 300,
-    reconnectMaxBackoffMs: 30000,
-    heartbeatTimeoutMs: 45000,
-    logLevel: "off",
     ...overrides,
   };
 }
 
-test("creates a Runtime and records a Session bound to the published Agent", async () => {
-  let createOptions;
-  let sessionOptions;
-  const client = {
-    agents: {
-      async list() {
-        return {
-          total: 1,
-          page: 1,
-          pageSize: 100,
-          items: [{ id: "internal-agent-7", agentId: "agent-1", enabled: true }],
-        };
-      },
-    },
-    runtimes: {
-      async create(options) {
-        createOptions = options;
-        return {
-          id: 1234567890,
-          sessions: {
-            async create(options) {
-              sessionOptions = options;
-              return { id: "agent-session-42" };
-            },
-          },
-        };
-      },
-    },
-  };
-  const adapter = new CloudAgentAdapter(config(), client);
-  const conversation = await adapter.createConversation("bot:user-sensitive-id");
-
-  assert.equal(conversation.runtimeId, "1234567890");
-  assert.equal(conversation.sessionId, "agent-session-42");
-  assert.equal(conversation.version, 1);
-  assert.equal(createOptions.agentManifest.id, "agent-1");
-  assert.equal(createOptions.metadata.channel, "wecom-aibot");
-  assert.equal(createOptions.metadata.agentId, "agent-1");
-  assert.equal(createOptions.metadata.sessionMode, "published-agent");
-  assert.match(createOptions.runtimeName, /^wecom-[a-f0-9]{10}-\d+$/);
-  assert.doesNotMatch(createOptions.runtimeName, /sensitive/);
-  assert.equal(sessionOptions.agentId, "internal-agent-7");
-  assert.equal(sessionOptions.timeoutMs, 5000);
-  assert.match(sessionOptions.sessionName, /^wecom-[a-f0-9]{10}-\d+-agent$/);
-  assert.doesNotMatch(sessionOptions.sessionName, /sensitive/);
-});
-
-test("resolves an Agent business ID across paginated Agent results", async () => {
-  const requestedPages = [];
-  const client = {
-    agents: {
-      async list(options) {
-        requestedPages.push(options.page);
-        if (options.page === 1) {
-          return {
-            total: 101,
-            page: 1,
-            pageSize: 100,
-            items: Array.from({ length: 100 }, (_, index) => ({
-              id: `internal-${index}`,
-              agentId: `decoy-agent-${index}`,
-              enabled: true,
-            })),
-          };
-        }
-        return {
-          total: 101,
-          page: 2,
-          pageSize: 100,
-          items: [{ id: "internal-target", agentId: "agent-1", enabled: true }],
-        };
-      },
-    },
-  };
-
-  const adapter = new CloudAgentAdapter(config(), client);
-  assert.equal(await adapter.resolveAgentInternalId(), "internal-target");
-  assert.deepEqual(requestedPages, [1, 2]);
-});
-
-test("reports when the configured Agent is not visible to the API key", async () => {
-  const client = {
-    agents: {
-      async list() {
-        return { total: 0, page: 1, pageSize: 100, items: [] };
-      },
-    },
-  };
-  const adapter = new CloudAgentAdapter(config(), client);
-
-  await assert.rejects(
-    adapter.resolveAgentInternalId(),
-    /CLOUD_AGENT_ID is not visible to this API key/,
-  );
-});
-
-test("lists every visible Agent across paginated results", async () => {
-  const client = {
-    agents: {
-      async list(options) {
-        if (options.page === 1) {
-          return {
-            total: 101,
-            page: 1,
-            pageSize: 100,
-            items: Array.from({ length: 100 }, (_, index) => ({
-              id: `internal-${index}`,
-              agentId: `agent-${index}`,
-              agentName: `Agent ${index}`,
-              description: `desc ${index}`,
-              enabled: true,
-            })),
-          };
-        }
-        return {
-          total: 101,
-          page: 2,
-          pageSize: 100,
-          items: [
-            { id: "internal-100", agentId: "agent-100", agentName: "Last Agent", enabled: false },
-          ],
-        };
-      },
-    },
-  };
-
-  const adapter = new CloudAgentAdapter(config(), client);
-  const agents = await adapter.listVisibleAgents();
-  assert.equal(agents.length, 101);
-  assert.equal(agents[0].agentId, "agent-0");
-  assert.equal(agents[0].agentName, "Agent 0");
-  assert.equal(agents[0].enabled, true);
-  assert.equal(agents[100].agentId, "agent-100");
-  assert.equal(agents[100].enabled, false);
+test("creates WMA sessions through the managed Agent client", async () => {
+  const client = { async createConversation(name) { assert.equal(name, "test"); return { sessionId: "wma-session" }; } };
+  const adapter = new AgentAdapter(config(), client);
+  assert.deepEqual(await adapter.createConversation("test"), { sessionId: "wma-session" });
 });
 
 test("loads the recorded Session, streams text, and disconnects", async () => {
@@ -206,25 +64,11 @@ test("loads the recorded Session, streams text, and disconnects", async () => {
     },
     async disconnect() { calls.push(["disconnect"]); },
   };
-  const client = {
-    runtimes: {
-      async get(runtimeId) {
-        calls.push(["runtime", runtimeId]);
-        return {
-          sessions: {
-            async get(sessionId) {
-              calls.push(["session", sessionId]);
-              return session;
-            },
-          },
-        };
-      },
-    },
-  };
-  const adapter = new CloudAgentAdapter(config(), client);
+  const client = { async session(conversation) { calls.push(["session", conversation.sessionId]); return session; } };
+  const adapter = new AgentAdapter(config(), client);
   let answer = "";
   const response = await adapter.sendMessage(
-    { runtimeId: "runtime-1", sessionId: "session-1" },
+    { sessionId: "session-1" },
     "hi",
     (delta) => { answer += delta; },
   );
@@ -235,7 +79,7 @@ test("loads the recorded Session, streams text, and disconnects", async () => {
   );
   assert.equal(response.stopReason, "end_turn");
   assert.deepEqual(calls.map((item) => item[0]), [
-    "runtime", "session", "connect", "prompt", "disconnect",
+    "session", "connect", "prompt", "disconnect",
   ]);
 });
 
@@ -287,10 +131,10 @@ for (const [name, notifications, expected] of [
         return { stopReason: "end_turn" };
       },
     };
-    const adapter = new CloudAgentAdapter(config({ includeThinking: true }), {
-      runtimes: { get: async () => ({ sessions: { get: async () => session } }) },
+    const adapter = new AgentAdapter(config({ includeThinking: true }), {
+      session: async () => session,
     });
-    const response = await adapter.sendMessage({ runtimeId: "runtime", sessionId: "session" }, "hi",
+    const response = await adapter.sendMessage({ sessionId: "session" }, "hi",
       (delta) => deltas.push(delta), { showThinking: false });
     assert.deepEqual(deltas, expected ? [expected] : []);
     assert.equal(response.stopReason, "end_turn");
@@ -308,10 +152,10 @@ test("does not expose buffered progress when a hidden-thinking turn fails", asyn
       throw new Error("cancelled");
     },
   };
-  const adapter = new CloudAgentAdapter(config(), {
-    runtimes: { get: async () => ({ sessions: { get: async () => session } }) },
+  const adapter = new AgentAdapter(config(), {
+    session: async () => session,
   });
-  await assert.rejects(adapter.sendMessage({ runtimeId: "runtime", sessionId: "session" }, "hi",
+  await assert.rejects(adapter.sendMessage({ sessionId: "session" }, "hi",
     (delta) => deltas.push(delta), { showThinking: false }), /cancelled/);
   assert.deepEqual(deltas, []);
   assert.equal(disconnected, true);
@@ -339,30 +183,10 @@ test("uses one neutral prefix for every section and closes orphaned colons", () 
   ].join("\n"));
 });
 
-test("marks missing Runtime state as unavailable without creating a replacement", async () => {
-  const client = {
-    runtimes: {
-      async get() {
-        const error = new Error("runtime not found");
-        error.httpStatus = 404;
-        throw error;
-      },
-    },
-  };
-  const adapter = new CloudAgentAdapter(config(), client);
-
-  await assert.rejects(
-    adapter.sendMessage({ runtimeId: "gone", sessionId: "gone" }, "hi"),
-    ConversationUnavailableError,
-  );
+test("marks a missing WMA Session unavailable without creating a replacement", async () => {
+  const adapter = new AgentAdapter(config(), { async session() { throw Object.assign(new Error("session not found"), { httpStatus: 404 }); } });
+  await assert.rejects(adapter.sendMessage({ sessionId: "gone" }, "hi"), ConversationUnavailableError);
   assert.equal(isConversationUnavailable({ httpStatus: 410 }), true);
-});
-
-test("runtime names are bounded and do not expose conversation identifiers", () => {
-  const name = safeRuntimeName("wecom production !!!", "user@example.com/private-chat");
-  assert.ok(name.length <= 64);
-  assert.match(name, /^wecom-production-[a-f0-9]{10}-\d+$/);
-  assert.doesNotMatch(name, /example|private|@/);
 });
 
 for (const showThinking of [true, false]) {
@@ -389,9 +213,9 @@ for (const showThinking of [true, false]) {
         return { stopReason: "end_turn" };
       },
     };
-    const adapter = new CloudAgentAdapter(config(), { runtimes: { get: async () => ({ sessions: { get: async () => session } }) } });
+    const adapter = new AgentAdapter(config(), { session: async () => session });
     let visible = "";
-    const response = await adapter.sendMessage({ runtimeId: "r", sessionId: "s" }, "先输出简报，再输出完整 HTML 报告", (delta) => { visible += delta; }, { htmlAttachments: true, showThinking });
+    const response = await adapter.sendMessage({ sessionId: "s" }, "先输出简报，再输出完整 HTML 报告", (delta) => { visible += delta; }, { htmlAttachments: true, showThinking });
     assert.equal(prompts, 2);
     assert.equal(disconnected, true);
     assert.match(visible, /诊断总结：Redis 延迟突增/);
@@ -414,8 +238,8 @@ for (const failure of ["summary", "throw", "max_tokens"]) {
         return { stopReason: prompts === 2 && failure === "max_tokens" ? "max_tokens" : "end_turn" };
       },
     };
-    const adapter = new CloudAgentAdapter(config(), { runtimes: { get: async () => ({ sessions: { get: async () => session } }) } });
-    const response = await adapter.sendMessage({ runtimeId: "r", sessionId: "s" }, "输出 HTML 报告", () => {}, { htmlAttachments: true });
+    const adapter = new AgentAdapter(config(), { session: async () => session });
+    const response = await adapter.sendMessage({ sessionId: "s" }, "输出 HTML 报告", () => {}, { htmlAttachments: true });
     assert.equal(prompts, 2);
     assert.equal(response.attachments.length, 0);
     assert.match(response.warnings.join(""), /报告附件未发送/);
@@ -432,9 +256,9 @@ test("a complete ordinary HTML fence satisfies a report request without a second
       return { stopReason: "end_turn" };
     },
   };
-  const adapter = new CloudAgentAdapter(config(), { runtimes: { get: async () => ({ sessions: { get: async () => session } }) } });
+  const adapter = new AgentAdapter(config(), { session: async () => session });
   let visible = "";
-  const response = await adapter.sendMessage({ runtimeId: "r", sessionId: "s" }, "输出完整 HTML 报告", (delta) => { visible += delta; }, { htmlAttachments: true });
+  const response = await adapter.sendMessage({ sessionId: "s" }, "输出完整 HTML 报告", (delta) => { visible += delta; }, { htmlAttachments: true });
   assert.equal(prompts, 1);
   assert.equal(response.attachments.length, 1);
   assert.doesNotMatch(visible, /<html>|完整报告/);

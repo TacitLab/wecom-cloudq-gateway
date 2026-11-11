@@ -175,7 +175,7 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{record ? '编辑告警 RCA' : '新增告警 RCA'}</DialogTitle>
-          <DialogDescription>选择需要诊断的告警，由 Bot 绑定的 CloudAgent 分析并推送到企业微信群。</DialogDescription>
+          <DialogDescription>选择需要诊断的告警，由 Bot 绑定的 Agent 分析并推送到企业微信群。</DialogDescription>
         </DialogHeader>
         <ol aria-label="配置步骤" className="grid grid-cols-4 gap-1 border-b pb-4 sm:gap-2">
           {steps.map((label, index) => (
@@ -328,7 +328,7 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
                     可与拉取告警的凭证不同。仅在实际执行时追加凭证，供 CloudQ 设置环境变量；Prompt 编辑框和本地诊断记录不包含追加的密钥正文。
                   </p>
                   {diagnosticCredentialId && <p className="text-xs leading-relaxed text-muted-foreground">
-                    所选凭证将随诊断请求发送给 CloudAgent，可能保留在云端会话中。每次诊断读取凭证的最新值。
+                    所选凭证将随诊断请求发送给 Agent，可能保留在云端会话中。每次诊断读取凭证的最新值。
                   </p>}
                 </div>
                 <label className="flex items-center gap-2 text-sm"><Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />{keepsBinding ? '启用自动轮询' : '绑定目标群后启用自动轮询'}</label>
@@ -389,14 +389,14 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
                   <dl className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-2">
                     <dt className="text-muted-foreground">配置名称</dt><dd className="break-words">{name}</dd>
                     <dt className="text-muted-foreground">执行 Bot</dt><dd>{selectedBot?.name}</dd>
-                    <dt className="text-muted-foreground">诊断 Agent</dt><dd>{selectedBot?.cloudAgentName}</dd>
+                    <dt className="text-muted-foreground">诊断 Agent</dt><dd>{selectedBot?.agentName}</dd>
                     <dt className="text-muted-foreground">轮询间隔</dt><dd>每 {pollIntervalSeconds} 秒</dd>
                     <dt className="text-muted-foreground">运行状态</dt><dd>{enabled ? keepsBinding ? '保存后启用自动轮询' : '绑定目标群后启用自动轮询' : '已暂停自动轮询'}</dd>
                     <dt className="text-muted-foreground">推送目标</dt><dd>{keepsBinding ? record?.targetChatName || '已绑定企业微信群' : '保存后绑定企业微信群'}</dd>
                     <dt className="text-muted-foreground">CloudQ 凭证</dt><dd>{diagnosticCredentialName}</dd>
                   </dl>
                   {!keepsBinding && <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">{record?.targetChatId ? '更换 Bot 后需重新绑定目标群。' : ''}保存后，将所选 Bot 加入目标群并发送页面上的 /bind-alert 指令完成绑定。</p>}
-                  {diagnosticCredentialId && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">诊断凭证仅在执行时追加到 CloudAgent 请求中，预览不显示密钥。凭证可能保留在云端会话中。</p>}
+                  {diagnosticCredentialId && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">诊断凭证仅在执行时追加到 Agent 请求中，预览不显示密钥。凭证可能保留在云端会话中。</p>}
                 </section>
                 <section aria-label="高级设置预览" className="rounded-lg border p-4 text-sm">
                   <div className="mb-3 flex items-center justify-between gap-2">

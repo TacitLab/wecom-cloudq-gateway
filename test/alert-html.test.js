@@ -21,8 +21,8 @@ test.after(() => { closeDatabase(); fs.rmSync(temporary, { recursive: true, forc
 let sequence = 0;
 function fixture({ showThinking = false, credential = false } = {}) {
   const index = sequence++;
-  const agent = registry.saveAgent({ name: "CloudQ", agentId: `agent_HTML_${index}`, apiKey: "test-key" });
-  const bot = registry.saveBot({ name: "Bot", botId: `alert-html-${index}`, secret: "bot-secret", cloudAgentId: agent.id, showThinking });
+  const agent = registry.saveAgent({ credentialConfigId: registry.saveWmaCredential({ name: "WMA test", secretId: "AKID_test", secretKey: "test-secret" }).id, name: "CloudQ", agentId: `agent_HTML_${index}`, });
+  const bot = registry.saveBot({ name: "Bot", botId: `alert-html-${index}`, secret: "bot-secret", agentConfigId: agent.id, showThinking });
   const polling = registry.saveTencentCredential({ name: "Poll", secretId: "AKID_POLL", secretKey: "poll-key" });
   const diagnostic = credential ? registry.saveTencentCredential({ name: "Diag", secretId: "AKID_DIAG_HTML", secretKey: "diag-html-secret-example" }) : undefined;
   const integration = alertStore.saveIntegration({ name: "APM 诊断 Demo", botConfigId: bot.id, credentialId: polling.id,
@@ -31,13 +31,13 @@ function fixture({ showThinking = false, credential = false } = {}) {
   alertStore.bindChat(integration.bindCode, bot.id, chatId);
   const { id: jobId } = alertStore.enqueueHistory(integration.id, { AlarmId: `alarm-${index}`, Content: "Redis 慢查询" });
   const adapter = adapterFor(registry.getAgent(agent.id, { secrets: true }), { sensitive: credential });
-  adapter.createConversation = async () => ({ runtimeId: "r", sessionId: "s" });
+  adapter.createConversation = async () => ({ sessionId: "s" });
   return { agent, bot, integration, chatId, jobId, adapter,
     diagnostic: diagnostic ? registry.getTencentCredential(diagnostic.id, { secrets: true }) : undefined };
 }
 
 function installSession(adapter, prompt) {
-  adapter.client = { runtimes: { get: async () => ({ sessions: { get: async () => ({ connect: async () => {}, disconnect: async () => {}, prompt }) } }) } };
+  adapter.client = { session: async () => ({ connect: async () => {}, disconnect: async () => {}, prompt }) };
 }
 
 function textChunk(text, messageId) {

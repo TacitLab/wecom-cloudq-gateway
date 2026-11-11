@@ -1,11 +1,7 @@
 "use strict";
 
-const crypto = require("node:crypto");
+const { WmaClient } = require("./wma");
 const { createHtmlReply, expectsHtmlAttachment, HTML_DELIVERY_INSTRUCTION, HTML_EXPORT_REQUEST } = require("./html-reply");
-const {
-  CloudAgentClient,
-  NotFoundError,
-} = require("@tencent-ai/cloud-agent-sdk");
 
 class ConversationUnavailableError extends Error {
   constructor(message, options = {}) {
@@ -14,29 +10,12 @@ class ConversationUnavailableError extends Error {
   }
 }
 
-function normalizeId(value, label) {
-  const id = String(value ?? "").trim();
-  if (!id) throw new Error(`CloudAgent did not return ${label}`);
-  return id;
-}
-
-function safeRuntimeName(prefix, conversationName) {
-  const normalizedPrefix = String(prefix || "wecom")
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 24) || "wecom";
-  const digest = crypto.createHash("sha256")
-    .update(String(conversationName || "conversation"))
-    .digest("hex")
-    .slice(0, 10);
-  return `${normalizedPrefix}-${digest}-${Date.now()}`.slice(0, 64);
-}
-
 function isConversationUnavailable(error) {
-  if (error instanceof ConversationUnavailableError || error instanceof NotFoundError) return true;
+  if (error instanceof ConversationUnavailableError) return true;
   if ([404, 410].includes(Number(error?.httpStatus))) return true;
+  if (error?.code === "ResourceNotFound.Session") return true;
   const message = String(error?.message || "");
-  return /(runtime|session).*(not found|does not exist|deleted|terminated|does not have acp link)/i.test(message);
+  return /session.*(not found|does not exist|deleted|terminated)/i.test(message);
 }
 
 function paragraphSeparator(tail, nextText) {
@@ -118,153 +97,25 @@ function createFinalAgentTextCollector() {
   };
 }
 
-class CloudAgentAdapter {
+class AgentAdapter {
   constructor(config, client) {
     this.config = config;
-    this.client = client || new CloudAgentClient({
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl,
-      sourceApp: config.sourceApp,
-      timeoutMs: config.controlTimeoutMs,
-      logLevel: config.logLevel,
-      retry: {
-        maxAttempts: 3,
-        backoffMs: 300,
-        backoffFactor: 2,
-        jitter: true,
-      },
-    });
+    this.client = client || new WmaClient(config);
   }
 
-  agentManifest() {
-    return {
-      id: this.config.agentId,
-      name: this.config.agentName,
-      manifestVersion: this.config.manifestVersion,
-      ...this.config.manifest,
-    };
-  }
-
-  async listVisibleAgents(signal) {
-    const pageSize = 100;
-    const agents = [];
-    let page = 1;
-
-    while (true) {
-      const result = await this.client.agents.list({
-        page,
-        pageSize,
-        timeoutMs: this.config.controlTimeoutMs,
-        signal,
-      });
-      const items = Array.isArray(result?.items) ? result.items : [];
-      for (const item of items) {
-        agents.push({
-          id: String(item?.id || "").trim(),
-          agentId: String(item?.agentId || item?.id || "").trim(),
-          agentName: String(item?.agentName || item?.name || "").trim(),
-          description: String(item?.description || "").trim(),
-          enabled: item?.enabled !== false,
-        });
-      }
-      const total = Number(result?.total || 0);
-      if (items.length === 0 || page * pageSize >= total) break;
-      page += 1;
-    }
-
-    return agents;
-  }
-
-  async resolveAgentInternalId(signal) {
-    const configuredId = normalizeId(this.config.agentId, "configured Agent ID");
-    const pageSize = 100;
-    let page = 1;
-
-    while (true) {
-      const result = await this.client.agents.list({
-        page,
-        pageSize,
-        timeoutMs: this.config.controlTimeoutMs,
-        signal,
-      });
-      const items = Array.isArray(result?.items) ? result.items : [];
-      const matched = items.find((item) =>
-        String(item?.agentId || "").trim() === configuredId ||
-        String(item?.id || "").trim() === configuredId,
-      );
-      if (matched) {
-        if (matched.enabled === false) {
-          throw new Error(`Configured CloudAgent is disabled: ${configuredId}`);
-        }
-        return normalizeId(matched.id, "internal Agent ID");
-      }
-
-      const total = Number(result?.total || 0);
-      if (items.length === 0 || page * pageSize >= total) break;
-      page += 1;
-    }
-
-    throw new Error(
-      `Configured CLOUD_AGENT_ID is not visible to this API key: ${configuredId}`,
-    );
-  }
-
-  async createConversation(conversationName, options = {}) {
-    // WorkBuddy displays a stable business ID such as `agent_...`, while the
-    // Agent Session API expects the Agent record's internal `id`. Resolve the
-    // mapping through the authenticated Agent list before creating a Session.
-    const internalAgentId = await this.resolveAgentInternalId(options.signal);
-    const runtimeName = safeRuntimeName(this.config.runtimeNamePrefix, conversationName);
-    const runtime = await this.client.runtimes.create({
-      runtimeName,
-      agentManifest: this.agentManifest(),
-      metadata: {
-        channel: "wecom-aibot",
-        agentId: this.config.agentId,
-        sessionMode: "published-agent",
-      },
-      timeoutMs: this.config.controlTimeoutMs,
-      signal: options.signal,
-    });
-    // The Runtime's default Session only uses the bootstrap manifest above.
-    // Creating an Agent Session by agentId makes AgentOS load the Agent's
-    // current published manifest, including its system prompt and skills.
-    const session = await runtime.sessions.create({
-      agentId: internalAgentId,
-      sessionName: `${runtimeName}-agent`.slice(0, 64),
-      timeoutMs: this.config.controlTimeoutMs,
-      signal: options.signal,
-    });
-    return {
-      version: 1,
-      runtimeId: normalizeId(runtime.id, "runtime ID"),
-      sessionId: normalizeId(session.id, "Agent Session ID"),
-      createdAt: Date.now(),
-    };
-  }
+  listVisibleAgents(signal) { return this.client.listVisibleAgents(signal); }
+  resolveAgentId(signal) { return this.client.resolveAgentId(signal); }
+  createConversation(name, options = {}) { return this.client.createConversation(name, options); }
 
   async sendMessage(conversation, content, onDelta = () => {}, options = {}) {
-    if (!conversation?.runtimeId || !conversation?.sessionId) {
-      throw new ConversationUnavailableError("Conversation record has no Runtime or Session ID");
+    if (!conversation?.sessionId) {
+      throw new ConversationUnavailableError("Conversation record has no WMA Session ID");
     }
 
     let session;
     try {
-      const runtime = await this.client.runtimes.get(
-        String(conversation.runtimeId),
-        { timeoutMs: this.config.controlTimeoutMs, signal: options.signal },
-      );
-      session = await runtime.sessions.get(
-        String(conversation.sessionId),
-        { timeoutMs: this.config.controlTimeoutMs, signal: options.signal },
-      );
-      await session.connect({
-        reconnectMaxAttempts: this.config.reconnectMaxAttempts,
-        reconnectBackoffMs: this.config.reconnectBackoffMs,
-        reconnectMaxBackoffMs: this.config.reconnectMaxBackoffMs,
-        heartbeatTimeoutMs: this.config.heartbeatTimeoutMs,
-        signal: options.signal,
-      });
+      session = await this.client.session(conversation, options);
+      await session.connect({ signal: options.signal });
 
       const finalText = options.showThinking === false ? createFinalAgentTextCollector() : undefined;
       const onNotification = finalText ? finalText.onNotification : createAgentTextFormatter(onDelta);
@@ -308,7 +159,7 @@ class CloudAgentAdapter {
     } catch (error) {
       if (isConversationUnavailable(error)) {
         throw new ConversationUnavailableError(
-          "CloudAgent Runtime or Session is no longer available",
+          "WMA Session is no longer available",
           { cause: error },
         );
       }
@@ -320,10 +171,9 @@ class CloudAgentAdapter {
 }
 
 module.exports = {
-  CloudAgentAdapter,
+  AgentAdapter,
   ConversationUnavailableError,
   createAgentTextFormatter,
   finalizeAgentText,
   isConversationUnavailable,
-  safeRuntimeName,
 };

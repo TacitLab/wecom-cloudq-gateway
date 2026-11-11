@@ -10,7 +10,7 @@ const registry = require("../src/registry");
 const alertStore = require("../src/alert-store");
 const alertWorker = require("../src/alert-worker");
 const notifier = require("../src/notifier");
-const { CloudAgentAdapter } = require("../src/cloudagent");
+const { AgentAdapter } = require("../src/agent");
 const { adapterFor } = require("../src/worker");
 const { credentialRedactor, withDiagnosticCredential } = require("../src/alert-credentials");
 
@@ -20,8 +20,8 @@ const DIAG_ID = "AKID_DIAG_ONLY_EXAMPLE";
 const DIAG_KEY = "diag-only-secret-example";
 
 function fixture() {
-  const agent = registry.saveAgent({ name: "SRE", agentId: "agent_DIAG", apiKey: "test-api-key", logLevel: "debug" });
-  const bot = registry.saveBot({ name: "RCA Bot", botId: "aibot-diag", secret: "test-bot-secret", cloudAgentId: agent.id });
+  const agent = registry.saveAgent({ credentialConfigId: registry.saveWmaCredential({ name: "WMA test", secretId: "AKID_test", secretKey: "test-secret" }).id, name: "SRE", agentId: "agent_DIAG" });
+  const bot = registry.saveBot({ name: "RCA Bot", botId: "aibot-diag", secret: "test-bot-secret", agentConfigId: agent.id });
   const polling = registry.saveTencentCredential({ name: "Poll", secretId: POLL_ID, secretKey: POLL_KEY });
   const diagnostic = registry.saveTencentCredential({ name: "CloudQ", secretId: DIAG_ID, secretKey: DIAG_KEY });
   const input = { name: "RCA", botConfigId: bot.id, credentialId: polling.id, region: "ap-guangzhou", promptTemplate: "诊断 {{alarm_content}}" };
@@ -34,15 +34,15 @@ function queue(saved) {
 }
 
 async function stubAgent(send, callback) {
-  const originals = { create: CloudAgentAdapter.prototype.createConversation, send: CloudAgentAdapter.prototype.sendMessage, notify: notifier.sendMessage };
+  const originals = { create: AgentAdapter.prototype.createConversation, send: AgentAdapter.prototype.sendMessage, notify: notifier.sendMessage };
   const pushed = [];
-  CloudAgentAdapter.prototype.createConversation = async () => ({ runtimeId: "runtime-test", sessionId: "session-test" });
-  CloudAgentAdapter.prototype.sendMessage = send;
+  AgentAdapter.prototype.createConversation = async () => ({ sessionId: "session-test" });
+  AgentAdapter.prototype.sendMessage = send;
   notifier.sendMessage = async (...args) => { pushed.push(args); };
   try { return await callback(pushed); }
   finally {
-    CloudAgentAdapter.prototype.createConversation = originals.create;
-    CloudAgentAdapter.prototype.sendMessage = originals.send;
+    AgentAdapter.prototype.createConversation = originals.create;
+    AgentAdapter.prototype.sendMessage = originals.send;
     notifier.sendMessage = originals.notify;
   }
 }
@@ -53,7 +53,7 @@ function assertNoCredentials(value, credentials = [DIAG_ID, DIAG_KEY]) {
 }
 
 test.beforeEach(() => {
-  db().exec("DELETE FROM alert_jobs; DELETE FROM alert_integrations; DELETE FROM tasks; DELETE FROM conversations; DELETE FROM wecom_bots; DELETE FROM cloud_agents; DELETE FROM tencent_credentials;");
+  db().exec("DELETE FROM alert_jobs; DELETE FROM alert_integrations; DELETE FROM wma_tasks; DELETE FROM wma_conversations; DELETE FROM wecom_bots; DELETE FROM wma_agents; DELETE FROM tencent_credentials;");
 });
 
 test("diagnosis credentials are optional, independent of polling, and only their reference is exposed", () => {
@@ -92,7 +92,6 @@ test("only runtime requests contain current diagnosis credentials; history, repl
   const rotatedKey = "rotated-diag-secret-example";
   registry.saveTencentCredential({ name: "CloudQ rotated", secretId: rotatedId, secretKey: rotatedKey }, diagnostic.id);
   await stubAgent(async function (_conversation, prompt, onDelta) {
-    assert.equal(this.config.logLevel, "off");
     const json = JSON.parse(prompt.slice(prompt.indexOf('{\n')));
     assert.deepEqual(json, { TENCENTCLOUD_SECRET_ID: rotatedId, TENCENTCLOUD_SECRET_KEY: rotatedKey, TENCENTCLOUD_REGION: "ap-guangzhou" });
     assertNoCredentials(prompt, [POLL_ID, POLL_KEY, DIAG_ID, DIAG_KEY]);
@@ -144,14 +143,14 @@ test("SDK exceptions containing the runtime prompt are scrubbed before job error
   } finally { console.error = originalError; }
 });
 
-test("sensitive SDK clients use a separate quiet adapter without changing ordinary chats", () => {
+test("sensitive diagnostics use a separate cached adapter without changing ordinary chats", () => {
   const { agent } = fixture();
   const agentWithSecrets = registry.getAgent(agent.id, { secrets: true });
   const regular = adapterFor(agentWithSecrets);
   const sensitive = adapterFor(agentWithSecrets, { sensitive: true });
   assert.notEqual(regular, sensitive);
-  assert.equal(regular.config.logLevel, "debug");
-  assert.equal(sensitive.config.logLevel, "off");
+  assert.equal(regular.config.secretId, "AKID_test");
+  assert.equal(sensitive.config.secretId, "AKID_test");
 });
 
 test("runtime credential blocks remain JSON data and redaction handles escaped and encoded values", () => {

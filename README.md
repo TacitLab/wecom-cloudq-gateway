@@ -1,23 +1,23 @@
-# 企业微信 Bot ↔ WorkBuddy CloudAgent：CVM 长连接网关
+# 企业微信 Bot ↔ WorkBuddy Managed Agents：CVM 长连接网关
 
-这是一个部署在 CVM/IDC 的常驻 Node.js 服务。它使用企业微信智能机器人的 WebSocket 长连接接收对话并主动发送告警通知，通过 WorkBuddy CloudAgent SDK 执行 Agent；同时可以定时轮询腾讯云可观测平台的告警历史，自动执行 RCA 并推送到固定企业微信群。
+这是一个部署在 CVM/IDC 的常驻 Node.js 服务。它使用企业微信智能机器人的 WebSocket 长连接接收对话并主动发送告警通知，通过 WorkBuddy Enterprise Managed Agents（WMA）腾讯云 API 3.0 / ACP 执行 Agent；同时可以定时轮询腾讯云可观测平台的告警历史，自动执行 RCA 并推送到固定企业微信群。
 
 ## 配对模型
 
-- 网关可以管理多组企业微信 Bot 和 CloudAgent 配置。
-- 每个企业微信 Bot 只能绑定一个 CloudAgent。
-- 同一个 CloudAgent 配置可以被多个 Bot 复用。
+- 网关可以管理多组企业微信 Bot 和 WMA Agent 配置。
+- 每个企业微信 Bot 只能绑定一个 WMA Agent。
+- 同一个 WMA Agent 配置可以被多个 Bot 复用。
 - 管理员在 Web 页面修改配对后，新消息立即进入新 Agent。
 - 配对或 Agent 版本会进入会话键，换绑不会误用旧 Agent 的 Session。
 - Bot 配对中的“显示思考过程”默认勾选（已有 Bot 也保持开启）。取消勾选后，对话和告警 RCA 只推送最终回复，处理中保留占位提示，不展示 Agent 执行过程。
 
-用户不需要选择 Agent。单聊默认按 `Bot + 用户` 复用 Session，群聊默认按 `Bot + 群` 复用 Session；只有发送严格匹配的 `/new` 才创建新 Runtime/Session。群聊中企业微信回调可能保留 `@Bot` 前缀，`@Bot /new` 会被网关归一化为同一指令。
+用户不需要选择 Agent。单聊默认按 `Bot + 用户` 复用 Session，群聊默认按 `Bot + 群` 复用 Session；只有发送严格匹配的 `/new` 才创建新 Session。群聊中企业微信回调可能保留 `@Bot` 前缀，`@Bot /new` 会被网关归一化为同一指令。
 
 发送 `/stop`（群聊可发送 `@Bot /stop`）会取消当前正在执行的 Agent 任务并清理该会话的排队消息，但保留现有 Session 上下文。“告警 RCA”页面也提供独立的“暂停/启用”按钮；暂停只影响后续自动轮询，已进入诊断或推送阶段的任务会继续完成。
 
 ### HTML 文件附件
 
-用户可以在 Bot 对话中要求“生成一个 HTML 周报，以 HTML 附件发给我”，也可以在告警 RCA 自定义诊断 prompt 中要求“先输出简报，再输出完整 HTML 报告”。网关会引导 CloudAgent 输出完整 HTML 源码，将源码转换成 UTF-8 `.html` 文件，上传企微临时素材。普通对话回复到原对话；告警 RCA 先推送简报，再将附件主动发送到绑定群。HTML 源码不占用聊天文本字节限额。无需配置网页托管，也无需修改管理前端。
+用户可以在 Bot 对话中要求“生成一个 HTML 周报，以 HTML 附件发给我”，也可以在告警 RCA 自定义诊断 prompt 中要求“先输出简报，再输出完整 HTML 报告”。网关会引导 WMA Agent 输出完整 HTML 源码，将源码转换成 UTF-8 `.html` 文件，上传企微临时素材。普通对话回复到原对话；告警 RCA 先推送简报，再将附件主动发送到绑定群。HTML 源码不占用聊天文本字节限额。无需配置网页托管，也无需修改管理前端。
 
 交付协议为最终回复中的专用代码块：
 
@@ -34,18 +34,18 @@
 
 升级后，旧版已完成但缺少 HTML 的告警任务不会自动补发；在管理台点击“重试”会重新诊断并生成附件。用户向 Bot 上传文件和图片尚未接入。
 
-告警 RCA 配置选择一个已有 Bot，自动使用该 Bot 当前绑定的 CloudAgent。每条新告警创建独立 Runtime/Session，不会污染员工的聊天上下文。
+告警 RCA 配置选择一个已有 Bot，自动使用该 Bot 当前绑定的 WMA Agent。每条新告警创建独立 WMA Session，不会污染员工的聊天上下文。
 
 ## 架构
 
 ```text
 企业微信 Bot ──WebSocket 对话/主动推送──┐
-                                       ├── CVM 网关 ── CloudAgent SDK/ACP ── WorkBuddy
+                                       ├── CVM 网关 ── WMA 云 API/ACP ── WorkBuddy Managed Agents
 腾讯云告警历史 API ──定时轮询───────────┘       │
                                                └── SQLite（配置、Session、告警去重、任务）
 ```
 
-不再需要公网回调 URL、SCF 自调用、Redis 或额外的配置加密密钥。Bot Secret、CloudAgent API Key 直接保存在本机 SQLite 中，管理页面和管理 API 不会回显明文。请通过文件权限和主机访问控制保护数据库。
+不再需要公网回调 URL、SCF 自调用、Redis 或额外的配置加密密钥。Bot Secret 和 WMA AK/SK 直接保存在本机 SQLite 中，管理页面和管理 API 不会回显明文。请通过文件权限和主机访问控制保护数据库。
 
 ## 网络要求
 
@@ -54,11 +54,11 @@
 - `wss://openws.work.weixin.qq.com:443`（企业微信长连接；私有部署企业以管理端显示地址为准）
 - `https://monitor.tencentcloudapi.com:443`（云产品监控、APM 告警策略与历史）
 - `https://cls.tencentcloudapi.com:443`（CLS 日志告警策略与历史，使用 CLS 来源时需要）
-- `https://www.codebuddy.cn:443`（AgentOS API）
-- Runtime 返回的 `*.sandbox.codebuddy.cn:443` 等 ACP 地址
+- `https://workbuddyenterprise.tencentcloudapi.com:443`（WMA 云 API，TC3 签名）
+- WMA 返回的 `*.ma.workbuddy.cn:443` 等 ACP 地址
 - 正常 DNS 解析
 
-如果 IDC 完全不能访问公网，长连接和 CloudAgent 都无法工作，需要先配置企业代理、专线或出口白名单。
+如果 IDC 完全不能访问公网，长连接和 WMA Agent 都无法工作，需要先配置企业代理、专线或出口白名单。
 
 ## 运行要求
 
@@ -93,7 +93,7 @@ SQLITE_PATH=/data/gateway.db
 | `TASK_RETENTION_SECONDS` | `86400` | 已完成/失败任务和幂等记录保留时间 |
 | `ALERT_JOB_RETENTION_DAYS` | `30` | 已完成/失败告警 RCA 历史保留天数 |
 
-企微 Bot ID、Bot Secret、CloudAgent ID 和 API Key 不再放环境变量，全部在管理页面维护。
+企微 Bot ID、Bot Secret、WMA Agent ID 和 AK/SK 不再放环境变量，全部在管理页面维护。
 
 ## Docker Compose 部署（推荐）
 
@@ -162,9 +162,9 @@ npm start
 
 ## 页面配置顺序
 
-1. 在 WorkBuddy 创建并发布企业智能体，并在企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）取得 WorkBuddy API Key。
-2. 在管理页“WorkBuddy API Key”区域新增 Key 配置（支持多个）；点击“测试”确认该 Key 能看到企业 Agent。注意：个人 PAT（`pt_` 开头）看不到企业智能体。
-3. 在管理页“CloudAgent”区域新增配置：选择 WorkBuddy API Key → 点击“拉取 Agent 列表”→ 选择一个 Agent 绑定；点击“测试”确认连通。也可以切换为手动输入 Agent ID 和 API Key。
+1. 在腾讯云 WMA 创建并发布 Agent，配置可用版本路由并开启公网 API 访问。在 [腾讯云 API 密钥管理](https://console.cloud.tencent.com/cam/capi) 准备具备 WMA 访问权限的 `SecretId` / `SecretKey`；凭证对应账号需关联企业身份。无需另建 WorkBuddy API Key，也无需手动填写企业 ID。
+2. 在管理页“WMA 凭证设置”新增名称、SecretId（AK）、SecretKey（SK）。默认 API 接入地域是 `ap-guangzhou`，可在高级配置修改。点击“测试”只查询该凭证可见的 WMA Agent，不创建会话。编辑时密钥留空表示保留原值；页面只显示掩码。
+3. 在“WMA Agent”新增配置：选择 WMA 凭证 → 自动拉取列表 → 选择 Agent → 保存。支持刷新、搜索和已添加标记。切换凭证会清空旧选择；保存时再次检查 Agent。WMA ID 按字符串处理，支持 ULID 和数字字符串。
 4. 在管理页“企业微信 Bot 配对”区域新增配对，二选一：
    - **扫码创建（推荐）**：选择“扫码创建”标签页，生成二维码后用企业微信扫码确认“一键创建机器人”，网关自动取得 Bot ID/Secret 并完成配对（Secret 只保存在服务端）。扫码来源标识通过 `WECOM_PAIRING_SOURCE` 配置，未设置时回退 `wecom_cli_external`，生产环境应向企业微信申请正式来源标识。
    - **绑定已有机器人**：在企业微信管理端把机器人连接方式改为“使用长连接”，取得 Bot ID 和 Secret 后手动填写。
@@ -172,9 +172,23 @@ npm start
 7. 在企业微信发送“你好”，再追问“我刚才问了什么”，确认复用同一 Session。
 8. 发送 `/new`，确认创建新 Session。
 
+### WMA 存储与升级
+
+本分支只支持腾讯云 AK/SK 接入 WMA。凭证、Agent、聊天 Session 和任务分别存入新表 `wma_credentials`、`wma_agents`、`wma_conversations`、`wma_tasks`。没有旧 CloudAgent SDK、WorkBuddy API Key、provider 路由、启动 Manifest 或本地 Runtime ID 兼容路径。
+
+旧 `api_keys`、`cloud_agents`、`conversations`、`tasks` 表不读取、不迁移，可保留在数据库内作为旧数据留存。新安装不会创建这些表。升级到本分支后，需要重新录入 WMA AK/SK，并从列表选择 Agent。
+
+**Bot 与告警配置保留。** 首次启动会执行一次性 Bot 绑定结构切换：保留 Bot ID、Secret、开关和会话设置，解除旧 Agent 绑定；保留告警策略、诊断模板、凭证引用和群绑定。旧 Agent 相关的未完成告警任务标记失败，避免误用新 Agent 继续执行。切换过程在事务内校验外键，重新启动不会重复解绑已经绑定的 WMA Agent。
+
+未绑定 WMA Agent 的 Bot 不建立长连接，页面显示“待绑定 WMA Agent”；其关联告警保留启用设置，但跳过自动轮询。管理员新增 WMA Agent 后，编辑原 Bot 完成绑定即可恢复，不必重录机器人凭据或重新绑定告警群。发布前请备份 SQLite 数据库。
+
+WMA 按平台版本路由加载提示词与技能，网关使用腾讯云 API 3.0（`2026-07-09`）与 ACP SSE 对话。每个聊天只复用自己保存的 Session，AK/SK 或地域变更会轮换相关 Agent 的会话命名空间。会话创建和失败对话均不会自动重试；`/new` 和独立告警会创建新托管会话，关闭连接不会销毁会话，运行资源可能持续计费。
+
+接口依据：[ADK & API](https://cloud.tencent.com/document/product/1831/140287)、[Agent 列表](https://cloud.tencent.com/document/api/1831/138576)、[会话详情](https://cloud.tencent.com/document/api/1831/138629)、[官方接入说明](https://cloud.tencent.com/document/product/1831/140759)。
+
 ## 告警 RCA 配置
 
-1. 确认用于 RCA 的 CloudAgent 已绑定 CloudQ 等诊断技能，并使用最小权限凭据。
+1. 确认用于 RCA 的 WMA Agent 已绑定 CloudQ 等诊断技能，并使用最小权限凭据。
 2. 在左侧“腾讯云凭证”录入并测试 `SecretId` / `SecretKey`；创建告警 RCA 配置必须先有可用凭证。
 3. 在“告警 RCA”新增配置，按四步完成设置：
    - **告警来源**：选择云产品监控、应用性能监控 APM 或日志服务 CLS，再选择腾讯云凭证和告警所在地域。每条配置对应一种来源；切换来源、凭证或地域会清空旧策略选择。
@@ -204,9 +218,9 @@ CLS 使用 `cls.tencentcloudapi.com`（版本 `2020-10-16`），通过 `Describe
 
 云产品监控、APM、CLS 共用一套模板变量名，运行时内容随来源变化，缺失字段为空。原有 `{{alarm_json}}`、`{{alarm_id}}`、`{{alarm_object}}`、`{{alarm_content}}`、`{{policy_name}}`、`{{region}}` 保持兼容；另外支持默认模板中使用的来源、状态、策略 ID、策略类型、时间、维度、指标和原始 JSON 等变量，完整清单见页面提示。CLS 的 `{{alarm_id}}` 对应事件 `RecordId`，`{{policy_id}}` 对应策略 `AlarmId`；`{{raw_json}}` 保留日志主题和触发条件等来源特有字段。模板只支持 `{{变量名}}` 替换，不支持点路径表达式；APM 未返回的应用 ID、Trace ID 不会自动补全。
 
-“诊断与推送”步骤在“启用自动轮询”上方提供 **CloudQ 诊断凭证（可选）**，无需展开高级配置，也不依赖是否修改 Prompt，可独立选择“腾讯云凭证”中已保存的条目，与拉取告警使用的凭证分开。默认不嵌入，继续使用 Agent 已有环境。选择后，每次诊断开始时读取该凭证的最新值，在实际发送给 CloudAgent 的 Prompt 末尾追加运行时配置，要求 Agent 将 `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY` 和当前配置地域 `TENCENTCLOUD_REGION` 传入执行 CloudQ 的进程环境。此方式依赖 Agent 按技能说明设置并使用环境变量，不会直接改变网关或云端沙箱的全局环境。
+“诊断与推送”步骤在“启用自动轮询”上方提供 **CloudQ 诊断凭证（可选）**，无需展开高级配置，也不依赖是否修改 Prompt，可独立选择“腾讯云凭证”中已保存的条目，与拉取告警使用的凭证分开。默认不嵌入，继续使用 Agent 已有环境。选择后，每次诊断开始时读取该凭证的最新值，在实际发送给 WMA Agent 的 Prompt 末尾追加运行时配置，要求 Agent 将 `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY` 和当前配置地域 `TENCENTCLOUD_REGION` 传入执行 CloudQ 的进程环境。此方式依赖 Agent 按技能说明设置并使用环境变量，不会直接改变网关或云端沙箱的全局环境。
 
-页面、默认模板及模板变量接口不会返回追加的凭证正文；SQLite 的配置只保存诊断凭证引用。告警任务的 Prompt 只保存诊断正文和“运行时已注入”的标记，不保存追加的凭证块。带凭证的诊断使用独立的静默 SDK 客户端，并在结果、错误和本地日志写入前遮盖已知 SecretId/SecretKey（包括常见 JSON/URL/base64 编码形式）。这些措施不控制 CloudAgent 云端会话和技能内部的记录；真实凭证会随请求发送给所选 CloudAgent，可能保留在云端会话中。轮换凭证后新诊断自动使用最新值；被诊断配置引用的凭证不可删除，先取消选择或更换引用即可。
+页面、默认模板及模板变量接口不会返回追加的凭证正文；SQLite 的配置只保存诊断凭证引用。告警任务的 Prompt 只保存诊断正文和“运行时已注入”的标记，不保存追加的凭证块。带凭证的诊断使用独立适配器，并在结果、错误和本地日志写入前遮盖已知 SecretId/SecretKey（包括常见 JSON/URL/base64 编码形式）。这些措施不控制 WMA Agent 云端会话和技能内部的记录；真实凭证会随请求发送给所选 WMA Agent，可能保留在云端会话中。轮换凭证后新诊断自动使用最新值；被诊断配置引用的凭证不可删除，先取消选择或更换引用即可。
 
 从 URL 回调切换成长连接后，应停用原 SCF 网关，避免同一个 Bot 存在两套接入方式。企业微信若发出 `disconnected_event`，通常说明同一 Bot 又建立了一条新连接。
 
@@ -215,9 +229,9 @@ CLS 使用 `cls.tencentcloudapi.com`（版本 `2020-10-16`），通过 `Describe
 - 单聊：同一配对下的 `aibotid + userid` 共用一个 Session。
 - 群聊“整个群共用”：同一配对下的 `aibotid + chatid` 共用一个 Session。
 - 群聊“按用户隔离”：再加入 `userid` 进行隔离。
-- 更新 CloudAgent 配置会提升配置 revision，后续消息使用新会话，避免旧 Runtime 继续引用旧配置。
+- 更新 WMA Agent 配置会提升配置 revision，后续消息使用新会话，后续使用新配置创建会话。
 - 把 Bot 改绑到另一个 Agent 后，后续消息使用新的会话命名空间。
-- Runtime/Session 被平台回收时不会悄悄创建新会话，而是提示发送 `/new`。
+- Session 已失效或被归档时不会悄悄创建新会话，而是提示发送 `/new`。
 
 ## SQLite 与备份
 
@@ -234,8 +248,6 @@ docker compose start gateway
 
 网关重启时会保留所有已建立的 Session 映射。为避免对具有写操作能力的 Agent 重复提交，重启前尚未完成的任务会标记失败，不自动重放；用户可重新发送消息。
 
-从使用 `CONFIG_ENCRYPTION_KEY` 的旧版本升级时，首次启动可临时保留原密钥。服务读取旧配置后会自动把对应密钥迁移为明文；确认所有 Bot 和 Agent 均已使用一次后即可删除该环境变量。也可以直接在管理页重新填写 Bot Secret 和 API Key。
-
 ## 代码结构
 
 ```text
@@ -247,12 +259,14 @@ src/monitor-client.js     腾讯云 API v3 签名与告警历史查询
 src/alert-poller.js       多配置告警轮询、时间窗口和分页
 src/alert-store.js        告警配置、群绑定、去重任务和历史
 src/alert-worker.js       独立 Agent RCA 与长连接主动推送
-src/registry.js           WorkBuddy API Key、Bot/Agent 配置、唯一配对与敏感字段隐藏
+src/registry.js           WMA AK/SK 凭证、Bot/Agent 配置、唯一配对与敏感字段隐藏
 src/database.js           SQLite 初始化与 schema
 src/store.js              Session/任务持久化
 src/scheduler.js          按会话串行调度
-src/worker.js             CloudAgent 执行与企业微信流式回复
-src/cloudagent.js         Runtime、Agent Session 与 ACP 适配
+src/worker.js             WMA Agent 执行与企业微信流式回复
+src/agent.js              WMA Agent 适配与回复处理
+src/prepare-wma-storage.js 一次性保留 Bot/告警配置并解除旧 Agent 绑定
+src/wma.js                WMA 腾讯云 API、托管 Session、token 缓存与 ACP SSE 对话
 ```
 
 ## 运维与安全
@@ -260,13 +274,13 @@ src/cloudagent.js         Runtime、Agent Session 与 ACP 适配
 - `/healthz` 提供不含密钥的健康信息；`/admin` 和 `/api/admin/*` 使用 HTTP Basic Auth。
 - 管理页面可以通过 CVM 内网 IP + HTTP 使用；跨不可信网络时再配置 HTTPS 或 SSH 隧道。
 - HTTP Basic Auth 和页面提交的数据在普通 HTTP 中不会被传输加密，因此必须通过安全组把 3000 端口限制在可信内网。
-- SQLite 内的 Bot Secret、CloudAgent API Key、腾讯云 SecretId/SecretKey 为明文，请限制数据库文件权限并保护备份。
-- 不要在日志中输出 Bot Secret、API Key、ACP Token 或完整用户消息。
+- SQLite 内的 Bot Secret、WMA 凭证、腾讯云 SecretId/SecretKey 为明文，请限制数据库文件权限并保护备份。
+- 不要在日志中输出 Bot Secret、AK/SK、ACP Token 或完整用户消息。
 - 任务完成或失败后会立即清除 SQLite 中的原始企微消息和回调帧，只短期保留回复与幂等状态。
 - SDK 收到认证失败时会在页面显示 `error` 状态；网络中断时自动指数退避重连。
-- 对 `wecom_connection_error`、`cloudagent_task_failed`、`alert_job_failed`、`alert_poll_tick_failed`、`gateway_start_failed` 配置日志告警。
+- 对 `wecom_connection_error`、`wma_task_failed`、`alert_job_failed`、`alert_poll_tick_failed`、`gateway_start_failed` 配置日志告警。
 - SDK 的 `session.prompt()` 结束后会主动断开 ACP SSE，避免遗留连接。
-- 删除仍被 Bot 配对引用的 CloudAgent 会被拒绝，需先调整或删除对应 Bot。
+- 删除仍被 Bot 配对引用的 WMA Agent 会被拒绝，需先调整或删除对应 Bot。
 
 ## 测试与打包
 

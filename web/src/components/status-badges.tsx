@@ -8,6 +8,7 @@ export function BotStatusBadge({
   bot: BotConfig
   connection?: ConnectionStatus
 }) {
+  if (!bot.agentConfigId) return <Badge variant="secondary">待绑定 WMA Agent</Badge>
   if (!bot.enabled) return <Badge variant="secondary">已停用</Badge>
   if (!connection) return <Badge variant="destructive">未连接</Badge>
   const ok = connection.status === 'authenticated'

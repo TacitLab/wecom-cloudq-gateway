@@ -5,17 +5,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { KeyForm } from '@/components/forms/key-form'
-import type { ApiKeyConfig } from '@/lib/types'
+import { WmaCredentialForm } from '@/components/forms/wma-credential-form'
+import type { WmaCredentialConfig } from '@/lib/types'
 
-export function KeyDialog({
+export function WmaCredentialDialog({
   open,
   record,
   onOpenChange,
   onSaved,
 }: {
   open: boolean
-  record?: ApiKeyConfig
+  record?: WmaCredentialConfig
   onOpenChange: (open: boolean) => void
   onSaved: () => Promise<void>
 }) {
@@ -23,13 +23,13 @@ export function KeyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>WorkBuddy API Key</DialogTitle>
+          <DialogTitle>WMA 凭证设置</DialogTitle>
           <DialogDescription>
-            在 WorkBuddy 企业后台（企业智能体 → Agent → 接入 → 开发集成-API集成）获取 WorkBuddy API Key；个人 PAT（pt_ 开头）无法看到企业智能体。
+            录入具有 WMA 访问权限的腾讯云 SecretId / SecretKey，用于拉取 Agent 列表和执行对话。
           </DialogDescription>
         </DialogHeader>
         {open && (
-          <KeyForm
+          <WmaCredentialForm
             key={record?.id ?? 'new'}
             record={record}
             onCancel={() => onOpenChange(false)}

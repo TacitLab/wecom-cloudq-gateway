@@ -36,14 +36,14 @@ export function PairingsView({
   return (
     <PanelCard
       title="企业微信 Bot 配对"
-      hint="每个 Bot 只能选择一个 CloudAgent；修改配对后，新消息自动进入新 Agent。"
+      hint="每个 Bot 只能选择一个 Agent；修改配对后，新消息自动进入新 Agent。"
       action={<Button onClick={() => onEdit()}>新增配对</Button>}
     >
       {!state ? (
         <TableSkeleton />
       ) : state.bots.length === 0 ? (
         <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          请先创建 CloudAgent，再新增 Bot 配对。
+          请先创建 Agent，再新增 Bot 配对。
         </div>
       ) : (
         <Table>
@@ -65,7 +65,7 @@ export function PairingsView({
                     {b.botId}
                   </code>
                 </TableCell>
-                <TableCell>{b.cloudAgentName}</TableCell>
+                <TableCell>{b.agentName || '待绑定 WMA Agent'}</TableCell>
                 <TableCell>
                   <BotStatusBadge bot={b} connection={state.connections[b.id]} />
                 </TableCell>

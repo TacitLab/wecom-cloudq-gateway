@@ -2,8 +2,8 @@ export interface BotConfig {
   id: string
   name: string
   botId: string
-  cloudAgentId: string
-  cloudAgentName: string
+  agentConfigId: string | null
+  agentName: string
   groupSessionScope: 'chat' | 'user'
   wsUrl?: string
   welcomeText: string
@@ -21,23 +21,20 @@ export interface AgentConfig {
   id: string
   name: string
   agentId: string
-  apiKeyConfigId?: string | null
-  apiKeyName?: string | null
-  baseUrl: string
-  sourceApp: string
-  runtimeNamePrefix: string
+  credentialConfigId: string
+  credentialName: string
   controlTimeoutMs: number
   promptTimeoutMs: number
   includeThinking: boolean
-  manifest: Record<string, unknown>
   revision: number
 }
 
-export interface ApiKeyConfig {
+export interface WmaCredentialConfig {
   id: string
   name: string
-  apiKeyMasked?: string
-  baseUrl: string
+  region?: string
+  secretIdMasked?: string
+  secretKeyConfigured?: boolean
   createdAt: string
 }
 
@@ -62,9 +59,9 @@ export interface AlertIntegration {
   name: string
   botConfigId: string
   botName: string
-  cloudAgentName: string
+  agentName: string
   credentialId?: string | null
-  credentialName?: string | null
+  credentialName: string
   diagnosticCredentialId?: string | null
   diagnosticCredentialName?: string | null
   region?: string
@@ -105,7 +102,7 @@ export interface AlertJob {
 export interface AdminState {
   bots: BotConfig[]
   agents: AgentConfig[]
-  apiKeys: ApiKeyConfig[]
+  wmaCredentials: WmaCredentialConfig[]
   tencentCredentials: TencentCredentialConfig[]
   connections: Record<string, ConnectionStatus>
   alertIntegrations: AlertIntegration[]

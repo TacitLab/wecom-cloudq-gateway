@@ -33,6 +33,7 @@ function queryFor(integration, page, startTime, endTime) {
 }
 
 async function pollIntegration(integration, options = {}) {
+  if (!integration.agentConfigId) return { skipped: true, reason: "wma_agent_not_bound" };
   if (active.has(integration.id)) return { skipped: true, reason: "already_running" };
   active.add(integration.id);
   const attemptedAt = Date.now();
@@ -80,6 +81,7 @@ async function pollIntegration(integration, options = {}) {
 async function pollNow(id, options = {}) {
   const integration = alertStore.getIntegration(id, { secrets: true });
   if (!integration) throw new Error("Alert integration not found");
+  if (!integration.agentConfigId) throw new Error("WMA Agent is not bound to this Bot");
   if (!integration.targetChatId) throw new Error("Target WeCom group is not bound");
   return pollIntegration(integration, options);
 }

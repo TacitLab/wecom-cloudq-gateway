@@ -11,7 +11,7 @@ const alertStore = require("./src/alert-store");
 const alertWorker = require("./src/alert-worker");
 const { promptReference } = require("./src/alert-prompt");
 const { BotManager } = require("./src/bot-manager");
-const { CloudAgentAdapter } = require("./src/cloudagent");
+const { AgentAdapter } = require("./src/agent");
 const { TencentMonitorClient } = require("./src/monitor-client");
 const { closeDatabase, db } = require("./src/database");
 const registry = require("./src/registry");
@@ -105,12 +105,19 @@ function publicState(botManager) {
   return {
     bots: registry.listBots(),
     agents: registry.listAgents(),
-    apiKeys: registry.listKeys(),
+    wmaCredentials: registry.listWmaCredentials(),
     tencentCredentials: registry.listTencentCredentials(),
     connections: botManager.statuses(),
     alertIntegrations: alertStore.listIntegrations(),
     alertJobs: alertStore.listJobs(50),
   };
+}
+
+async function validateWmaSelection(input, existing) {
+  const key = input.credentialConfigId ? registry.getWmaCredential(input.credentialConfigId, { secrets: true }) : undefined;
+  if (!key) throw new Error("WMA credential configuration is required");
+  const adapter = new AgentAdapter({ ...existing, ...input, ...key, agentId: input.agentId, controlTimeoutMs: 30000 });
+  await adapter.resolveAgentId();
 }
 
 function createServer(options = {}) {
@@ -132,7 +139,7 @@ function createServer(options = {}) {
       if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/admin/")) {
         if (!authenticated(request, config)) {
           send(response, 401, { error: "Authentication required" }, "application/json; charset=utf-8", {
-            "WWW-Authenticate": 'Basic realm="CloudAgent Gateway", charset="UTF-8"',
+            "WWW-Authenticate": 'Basic realm="WMA Gateway", charset="UTF-8"',
           });
           return;
         }
@@ -151,45 +158,44 @@ function createServer(options = {}) {
         return;
       }
 
-      const keyMatch = url.pathname.match(/^\/api\/admin\/keys(?:\/([^/]+))?(?:\/(agents))?$/);
+      const keyMatch = url.pathname.match(/^\/api\/admin\/wma-credentials(?:\/([^/]+))?(?:\/(agents))?$/);
       if (keyMatch) {
         const [, id, action] = keyMatch;
         if (request.method === "POST" && action === "agents" && id) {
-          const key = registry.getKey(id, { secrets: true });
-          if (!key) throw new Error("API Key configuration not found");
+          const key = registry.getWmaCredential(id, { secrets: true });
+          if (!key) throw new Error("WMA credential configuration not found");
           let remoteAgents;
           try {
-            const adapter = new CloudAgentAdapter({
-              apiKey: key.apiKey,
-              baseUrl: key.baseUrl,
+            const adapter = new AgentAdapter({
+              ...key,
               controlTimeoutMs: 30000,
             });
             remoteAgents = await adapter.listVisibleAgents();
           } catch (error) {
-            throw new Error(`Invalid API key or AgentOS unreachable: ${safeError(error)}`);
+            throw new Error(`Invalid WMA credential or service unreachable: ${safeError(error)}`);
           }
           const items = remoteAgents
             .filter((agent) => agent.agentId)
             .map((agent) => {
-              const existing = registry.findAgentByBusinessId(agent.agentId);
+              const existing = registry.findAgentByBusinessId(agent.agentId, key.id);
               return { ...agent, existingConfigId: existing?.id || null };
             });
           send(response, 200, { items });
           return;
         }
         if (request.method === "POST" && !id) {
-          const saved = registry.saveKey(await readJson(request, config.bodyLimitBytes));
+          const saved = registry.saveWmaCredential(await readJson(request, config.bodyLimitBytes));
           send(response, 201, saved);
           return;
         }
         if (request.method === "PUT" && id && !action) {
-          registry.saveKey(await readJson(request, config.bodyLimitBytes), id);
+          registry.saveWmaCredential(await readJson(request, config.bodyLimitBytes), id);
           botManager.sync();
-          send(response, 200, registry.getKey(id));
+          send(response, 200, registry.getWmaCredential(id));
           return;
         }
         if (request.method === "DELETE" && id && !action) {
-          registry.deleteKey(id);
+          registry.deleteWmaCredential(id);
           send(response, 200, { ok: true });
           return;
         }
@@ -247,9 +253,9 @@ function createServer(options = {}) {
         const [, id, action] = agentMatch;
         if (request.method === "POST" && action === "test" && id) {
           const agent = registry.getAgent(id, { secrets: true });
-          if (!agent) throw new Error("CloudAgent configuration not found");
-          const internalAgentId = await new CloudAgentAdapter({ ...agent, agentName: agent.name }).resolveAgentInternalId();
-          send(response, 200, { ok: true, internalAgentId });
+          if (!agent) throw new Error("WMA Agent configuration not found");
+          const agentId = await new AgentAdapter({ ...agent, agentName: agent.name }).resolveAgentId();
+          send(response, 200, { ok: true, agentId });
           return;
         }
         if (request.method === "POST" && action === "reset-sessions" && id) {
@@ -257,12 +263,16 @@ function createServer(options = {}) {
           return;
         }
         if (request.method === "POST" && !id) {
-          const saved = registry.saveAgent(await readJson(request, config.bodyLimitBytes));
+          const input = await readJson(request, config.bodyLimitBytes);
+          await validateWmaSelection(input);
+          const saved = registry.saveAgent(input);
           send(response, 201, saved);
           return;
         }
         if (request.method === "PUT" && id && !action) {
-          const saved = registry.saveAgent(await readJson(request, config.bodyLimitBytes), id);
+          const input = await readJson(request, config.bodyLimitBytes);
+          await validateWmaSelection(input, registry.getAgent(id, { secrets: true }));
+          const saved = registry.saveAgent(input, id);
           botManager.sync();
           send(response, 200, saved);
           return;
@@ -380,7 +390,9 @@ function createServer(options = {}) {
       send(response, 404, { error: "Not found" });
     } catch (error) {
       console.error("http_request_failed", { method: request.method, path: url.pathname, message: safeError(error) });
-      const status = /not found/i.test(safeError(error)) ? 404 : /required|invalid|must|too long|still paired|still used|not bound|unavailable|expired|UNIQUE constraint/i.test(safeError(error)) ? 400 : 500;
+      const upstreamStatus = Number(error?.httpStatus);
+      const status = [400, 401, 403, 404, 409, 410, 429, 502, 503, 504].includes(upstreamStatus) ? upstreamStatus
+        : /not found/i.test(safeError(error)) ? 404 : /required|invalid|must|too long|still paired|still used|not bound|unavailable|expired|UNIQUE constraint/i.test(safeError(error)) ? 400 : 500;
       send(response, status, { error: status === 500 ? "Internal server error" : safeError(error) });
     }
   });

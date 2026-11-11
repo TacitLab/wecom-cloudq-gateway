@@ -16,7 +16,7 @@ import { api } from '@/lib/api'
 import { toastTask } from '@/lib/toast-task'
 import type { AdminState, RemoteAgent } from '@/lib/types'
 
-export function KeysView({
+export function WmaCredentialsView({
   state,
   reload,
   onEdit,
@@ -28,12 +28,12 @@ export function KeysView({
   async function testKey(id: string) {
     try {
       const r = await toastTask(
-        api<{ items: RemoteAgent[] }>(`/api/admin/keys/${id}/agents`, { method: 'POST', body: '{}' }),
-        '正在验证 API Key…',
-        (r) => `验证通过，该 Key 可见 ${r.items?.length ?? 0} 个 Agent`,
+        api<{ items: RemoteAgent[] }>(`/api/admin/wma-credentials/${id}/agents`, { method: 'POST', body: '{}' }),
+        '正在验证 WMA 凭证…',
+        (r) => `验证通过，该凭证可见 ${r.items?.length ?? 0} 个 Agent`,
       )
       if (!(r.items?.length ?? 0))
-        toast.warning('未拉到任何 Agent——请确认是 WorkBuddy API Key，而非个人 PAT（pt_ 开头）')
+        toast.warning('未发现 Agent，请检查账号的 WMA 权限、企业身份及 Agent 归属')
     } catch {
       // 错误已由 toastTask 提示
     }
@@ -41,7 +41,7 @@ export function KeysView({
 
   async function removeKey(id: string) {
     try {
-      await toastTask(api(`/api/admin/keys/${id}`, { method: 'DELETE' }), '删除中…', 'API Key 已删除')
+      await toastTask(api(`/api/admin/wma-credentials/${id}`, { method: 'DELETE' }), '删除中…', 'WMA 凭证已删除')
       await reload()
     } catch {
       // 错误已由 toastTask 提示
@@ -50,35 +50,37 @@ export function KeysView({
 
   return (
     <PanelCard
-      title="WorkBuddy API Key"
-      hint="保存 WorkBuddy 企业后台的 API 集成 Key；新增 CloudAgent 时选择 Key 即可自动拉取 Agent 列表。"
-      action={<Button onClick={() => onEdit()}>新增 Key</Button>}
+      title="WMA 凭证设置"
+      hint="录入腾讯云 AK/SK；新增 Agent 时选择凭证，自动拉取可访问的 WMA 智能体。"
+      action={<Button onClick={() => onEdit()}>新增凭证</Button>}
     >
       {!state ? (
         <TableSkeleton rows={3} />
-      ) : state.apiKeys.length === 0 ? (
+      ) : state.wmaCredentials.length === 0 ? (
         <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          尚未配置 WorkBuddy API Key。
+          尚未配置 WMA 凭证。
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>名称</TableHead>
-              <TableHead>API Key</TableHead>
+              <TableHead>SecretId（AK）</TableHead>
+              <TableHead>接入地域 / 来源</TableHead>
               <TableHead>创建时间</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {state.apiKeys.map((k) => (
+            {state.wmaCredentials.map((k) => (
               <TableRow key={k.id}>
                 <TableCell className="font-medium">{k.name}</TableCell>
                 <TableCell>
                   <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-xs">
-                    {k.apiKeyMasked || '****'}
+                    {k.secretIdMasked}
                   </code>
                 </TableCell>
+                <TableCell>{k.region}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {new Date(k.createdAt).toLocaleString()}
                 </TableCell>
@@ -96,7 +98,7 @@ export function KeysView({
                           删除
                         </Button>
                       }
-                      title="确认删除这个 WorkBuddy API Key？"
+                      title="确认删除这个 WMA 凭证？"
                       onConfirm={() => removeKey(k.id)}
                     />
                   </div>
