@@ -87,7 +87,10 @@ class WmaClient {
   async createConversation(_name, options = {}) {
     const id = requiredId(this.config.agentId, "Agent ID");
     // Non-idempotent: create once; never retry a session allocation automatically.
-    const data = await this.request("CreateAgentSession", { AgentId: id }, options);
+    const data = await this.request("CreateAgentSession", {
+      AgentId: id,
+      ...(this.config.wmaVersionId ? { VersionId: requiredId(this.config.wmaVersionId, "Version ID") } : {}),
+    }, options);
     return {
       sessionId: requiredId(data.sessionId, "Session ID"),
       createdAt: Date.now(),
@@ -109,6 +112,9 @@ class WmaClient {
     const sessionId = requiredId(conversation.sessionId, "Session ID");
     const data = await this.request("DescribeAgentSession", { SessionId: sessionId }, options);
     if (data.agentId && data.agentId !== id) throw Object.assign(new Error("WMA session does not belong to this Agent"), { httpStatus: 410 });
+    if (this.config.wmaVersionId && data.versionId !== this.config.wmaVersionId) {
+      throw Object.assign(new Error("WMA session does not match the configured version"), { httpStatus: 410 });
+    }
     if (["FAILED", "ARCHIVED"].includes(data.status)) throw Object.assign(new Error("WMA session is unavailable"), { httpStatus: 410 });
     const endpoint = data.endpointSet?.find((item) => item.endpointType === "PUBLIC")?.url;
     if (!endpoint) throw new Error("WMA public chat endpoint is unavailable; enable public access in the WMA console");

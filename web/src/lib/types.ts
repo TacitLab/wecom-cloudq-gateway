@@ -27,6 +27,12 @@ export interface AgentConfig {
   promptTimeoutMs: number
   includeThinking: boolean
   revision: number
+  runtimeCredentialId: string | null
+  runtimeCredentialName: string | null
+  runtimeRegion: string | null
+  wmaVersionId: string | null
+  wmaVersionName: string | null
+  runtimeCredentialOutdated: boolean
 }
 
 export interface WmaCredentialConfig {
@@ -114,4 +120,20 @@ export interface RemoteAgent {
   agentName?: string
   enabled: boolean
   existingConfigId?: string | null
+}
+
+export interface RemoteAgentVersion {
+  versionId: string
+  versionName: string
+  versionType: string
+  status: string
+  model?: string
+  createdTime?: string | null
+  injected?: boolean
+  sourceVersionId?: string | null
+  sourceVersionName?: string | null
+  runtimeCredentialId?: string | null
+  runtimeCredentialName?: string | null
+  runtimeRegion?: string | null
+  runtimeCredentialOutdated?: boolean
 }

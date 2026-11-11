@@ -51,7 +51,7 @@ export function TencentCredentialsView({
   return (
     <PanelCard
       title="腾讯云凭证"
-      hint="保存腾讯云 SecretId / SecretKey；告警 RCA 配置选择凭证即可轮询腾讯云监控。"
+      hint="保存腾讯云 SecretId / SecretKey，供 Agent 运行时云认证和告警 RCA 使用。"
       action={<Button onClick={() => onEdit()}>新增凭证</Button>}
     >
       {!state ? (

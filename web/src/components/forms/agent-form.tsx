@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { AdvancedSection } from '@/components/advanced-section'
+import { AgentVersionSettings } from '@/components/forms/agent-version-settings'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -50,35 +51,26 @@ export function AgentForm({
   hideFooter?: boolean
 }) {
   const keys = state?.wmaCredentials ?? []
-  const [credentialConfigId, setCredentialConfigId] = useState('')
+  // AgentDialog keys the form by record ID and unmounts it on close. Initialize
+  // the draft once so background polling cannot replace unsaved edits.
+  const [credentialConfigId, setCredentialConfigId] = useState(() => record?.credentialConfigId ?? keys[0]?.id ?? '')
   const [remoteAgents, setRemoteAgents] = useState<RemoteAgent[]>([])
-  const [agentId, setAgentId] = useState('')
-  const [name, setName] = useState('')
-  const [controlTimeoutMs, setControlTimeoutMs] = useState('30000')
-  const [promptTimeoutMs, setPromptTimeoutMs] = useState('1200000')
-  const [includeThinking, setIncludeThinking] = useState(false)
+  const [agentId, setAgentId] = useState(() => record?.agentId ?? '')
+  const [name, setName] = useState(() => record?.name ?? '')
+  const [controlTimeoutMs, setControlTimeoutMs] = useState(() => String(record?.controlTimeoutMs ?? 30000))
+  const [promptTimeoutMs, setPromptTimeoutMs] = useState(() => String(record?.promptTimeoutMs ?? 1200000))
+  const [includeThinking, setIncludeThinking] = useState(() => Boolean(record?.includeThinking))
+  const [wmaVersionId, setWmaVersionId] = useState(() => record?.wmaVersionId ?? '')
+  const [creatingVersion, setCreatingVersion] = useState(false)
   const [saving, setSaving] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const requestVersion = useRef(0)
   const selectedKey = keys.find((key) => key.id === credentialConfigId)
 
-  useEffect(() => {
-    requestVersion.current += 1
-    setCredentialConfigId(record ? record.credentialConfigId ?? '' : state?.wmaCredentials[0]?.id ?? '')
-    setRemoteAgents([])
-    setAgentId(record?.agentId ?? '')
-    setName(record?.name ?? '')
-    setControlTimeoutMs(String(record?.controlTimeoutMs ?? 30000))
-    setPromptTimeoutMs(String(record?.promptTimeoutMs ?? 1200000))
-    setIncludeThinking(Boolean(record?.includeThinking))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record])
-
   async function pullAgents() {
     if (!credentialConfigId) return
     const version = ++requestVersion.current
-    setRemoteAgents([])
     setPulling(true)
     try {
       const r = await toastTask(
@@ -114,15 +106,19 @@ export function AgentForm({
   function pickRemote(value: string) {
     const picked = remoteAgents.find((x) => x.agentId === value)
     if (!picked) return
+    if (picked.agentId !== agentId) setWmaVersionId('')
     setAgentId(picked.agentId)
     if (picked.agentName) setName(picked.agentName)
   }
 
+  const sameAgent = record?.agentId === agentId && record?.credentialConfigId === credentialConfigId
+  const validSelection = Boolean(credentialConfigId && agentId && (sameAgent || remoteAgents.some((agent) => agent.agentId === agentId)))
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (pulling || saving) return
+    if (saving || creatingVersion) return
     if (!agentId) return toast.error('请先从 Agent 列表中选择要绑定的 Agent')
-    if (!remoteAgents.some((agent) => agent.agentId === agentId)) return toast.error('请从当前凭证的 Agent 列表重新选择')
+    if (!validSelection) return toast.error('请从当前凭证的 Agent 列表重新选择')
     setSaving(true)
     try {
       const id = record?.id
@@ -137,10 +133,11 @@ export function AgentForm({
             controlTimeoutMs: Number(controlTimeoutMs),
             promptTimeoutMs: Number(promptTimeoutMs),
             includeThinking,
+            wmaVersionId: wmaVersionId || null,
           }),
         }),
         '保存中…',
-        'Agent 已保存',
+        'Agent 已保存，新会话将使用所选版本',
       )
       await onSaved()
     } catch {
@@ -162,10 +159,13 @@ export function AgentForm({
     <form id={formId} onSubmit={submit} className="flex flex-col gap-4">
       <div className="grid gap-2">
         <Label>WMA 凭证</Label>
-        <Select value={credentialConfigId} onValueChange={(v) => {
+        <Select disabled={saving || creatingVersion} value={credentialConfigId} onValueChange={(v) => {
+          if (v === credentialConfigId) return
           requestVersion.current += 1
           setRemoteAgents([])
+          setPulling(false)
           setAgentId('')
+          setWmaVersionId('')
           setName('')
           setCredentialConfigId(v ?? '')
         }}>
@@ -193,7 +193,7 @@ export function AgentForm({
             variant="ghost"
             size="icon-xs"
             onClick={pullAgents}
-            disabled={pulling || !credentialConfigId}
+            disabled={saving || creatingVersion || pulling || !credentialConfigId}
             aria-label="刷新 Agent 列表"
           >
             <RefreshCw className={pulling ? 'animate-spin' : undefined} />
@@ -206,7 +206,7 @@ export function AgentForm({
                 type="button"
                 variant="outline"
                 className="w-full justify-between font-normal"
-                disabled={pulling || !credentialConfigId}
+                disabled={saving || creatingVersion || pulling || !credentialConfigId}
               />
             }
           >
@@ -277,6 +277,12 @@ export function AgentForm({
 
       <AdvancedSection>
         <div className="flex flex-col gap-4">
+          <AgentVersionSettings
+            key={`${credentialConfigId}:${agentId}`}
+            credentialConfigId={credentialConfigId} agentId={agentId} state={state}
+            record={sameAgent ? record : undefined} value={wmaVersionId} onChange={setWmaVersionId}
+            disabled={saving || creatingVersion} onCreatingChange={setCreatingVersion}
+          />
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label>控制超时（毫秒）</Label>
@@ -301,7 +307,7 @@ export function AgentForm({
               取消
             </Button>
           )}
-          <Button type="submit" disabled={saving || pulling || !agentId || (!remoteAgents.some((agent) => agent.agentId === agentId))}>
+          <Button type="submit" disabled={saving || creatingVersion || !validSelection}>
             {saving ? '保存中…' : submitLabel}
           </Button>
         </div>

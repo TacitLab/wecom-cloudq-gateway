@@ -18,6 +18,41 @@ test("fresh storage creates WMA tables without retired Agent tables or columns",
   const columns = db().prepare("PRAGMA table_info(wma_agents)").all().map((r) => r.name);
   for (const c of ["provider", "api_key_cipher", "manifest_json", "runtime_name_prefix"]) assert.ok(!columns.includes(c));
 });
+test("existing WMA storage gains runtime version columns without losing Agent configuration", () => {
+  const key = registry.saveWmaCredential({ name: "Existing", secretId: "AKID_existing", secretKey: "existing-secret" });
+  const original = registry.saveAgent({ name: "Existing Agent", agentId: "01EXISTING", credentialConfigId: key.id });
+  closeDatabase();
+  const raw = new DatabaseSync(process.env.SQLITE_PATH);
+  for (const column of ["runtime_credential_id", "runtime_region", "wma_version_id", "wma_version_name", "runtime_credential_updated_at"]) {
+    raw.exec(`ALTER TABLE wma_agents DROP COLUMN ${column}`);
+  }
+  raw.close();
+  const migrated = registry.getAgent(original.id);
+  assert.equal(migrated.name, original.name);
+  assert.equal(migrated.credentialConfigId, key.id);
+  assert.equal(migrated.wmaVersionId, null);
+  assert.equal(migrated.runtimeCredentialId, null);
+  assert.deepEqual(db().prepare("PRAGMA foreign_key_check").all(), []);
+  closeDatabase();
+  assert.equal(registry.getAgent(original.id).revision, original.revision);
+});
+test("previously bound credential versions are catalogued on upgrade without changing their binding", () => {
+  const key = registry.saveWmaCredential({ name: "WMA", secretId: "AKID_wma", secretKey: "access-secret" });
+  const runtime = registry.saveTencentCredential({ name: "Cloud account", secretId: "AKID_runtime", secretKey: "runtime-secret" });
+  const agent = registry.saveAgent({ name: "Existing", agentId: "existing-agent", credentialConfigId: key.id }, undefined, {
+    runtimeVersion: { runtimeCredentialId: runtime.id, runtimeRegion: "ap-shanghai", wmaVersionId: "old-prod", wmaVersionName: "prod-2", runtimeCredentialUpdatedAt: runtime.updatedAt },
+  });
+  closeDatabase();
+  const reloaded = registry.getAgent(agent.id);
+  assert.equal(reloaded.wmaVersionId, "old-prod");
+  assert.equal(reloaded.revision, agent.revision);
+  const metadata = registry.getCredentialVersion(key.id, "existing-agent", "old-prod");
+  assert.equal(metadata.injected, true);
+  assert.equal(metadata.runtimeCredentialName, "Cloud account");
+  assert.equal(metadata.sourceVersionId, null);
+  assert.equal(metadata.runtimeCredentialOutdated, false);
+  assert.doesNotMatch(JSON.stringify(metadata), /AKID_runtime|runtime-secret/);
+});
 test("cutover retains Bot and alert settings; no old Agents are imported; rebinding resumes polling", () => {
   const key = registry.saveWmaCredential({ name: "Test", secretId: "AKID_test", secretKey: "test-secret" });
   const a = registry.saveAgent({ name: "Test", agentId: "01TEST", credentialConfigId: key.id });

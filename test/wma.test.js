@@ -13,6 +13,17 @@ const json = (data) => Response.json({ Response: { AccessToken: data.accessToken
 const frame = (message) => `data: ${JSON.stringify(message)}\r\n\r\n`;
 const update = (text) => ({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } });
 
+test("pinned Sessions must report the configured version before conversation access", async () => {
+  for (const actualVersion of ["expected-version", "other-version", undefined]) {
+    const client = new WmaClient({ ...config, wmaVersionId: "expected-version" }, async () => Response.json({ Response: {
+      AgentId: agentId, SessionId: sessionId, VersionId: actualVersion, Status: "ACTIVE",
+      EndpointSet: [{ EndpointType: "PUBLIC", Url: "https://acp.example" }],
+    } }));
+    if (actualVersion === "expected-version") assert.ok(await client.session({ sessionId }));
+    else await assert.rejects(client.session({ sessionId }), error => error.httpStatus === 410 && /configured version/.test(error.message));
+  }
+});
+
 test("SSE handles byte-fragmented Chinese, CRLF, comments, and multi-line data", async () => {
   const bytes = new TextEncoder().encode(': heartbeat\r\ndata: {"text":\r\ndata: "中文"}\r\n\r\n');
   const messages = [];

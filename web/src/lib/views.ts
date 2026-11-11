@@ -15,7 +15,7 @@ export const VIEW_META: Record<ViewKey, { title: string; description: string }> 
   },
   'tencent-credentials': {
     title: '腾讯云凭证',
-    description: '维护告警 RCA 轮询腾讯云监控所需的 SecretId / SecretKey',
+    description: '维护 Agent 运行时认证及告警 RCA 所需的腾讯云 SecretId / SecretKey',
   },
   alerts: {
     title: '告警 RCA',

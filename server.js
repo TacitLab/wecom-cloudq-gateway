@@ -12,6 +12,7 @@ const alertWorker = require("./src/alert-worker");
 const { promptReference } = require("./src/alert-prompt");
 const { BotManager } = require("./src/bot-manager");
 const { AgentAdapter } = require("./src/agent");
+const { saveAgentConfiguration, listAgentVersions, createCredentialVersion } = require("./src/agent-config");
 const { TencentMonitorClient } = require("./src/monitor-client");
 const { closeDatabase, db } = require("./src/database");
 const registry = require("./src/registry");
@@ -113,13 +114,6 @@ function publicState(botManager) {
   };
 }
 
-async function validateWmaSelection(input, existing) {
-  const key = input.credentialConfigId ? registry.getWmaCredential(input.credentialConfigId, { secrets: true }) : undefined;
-  if (!key) throw new Error("WMA credential configuration is required");
-  const adapter = new AgentAdapter({ ...existing, ...input, ...key, agentId: input.agentId, controlTimeoutMs: 30000 });
-  await adapter.resolveAgentId();
-}
-
 function createServer(options = {}) {
   const config = options.config || serverConfig();
   const botManager = options.botManager || new BotManager();
@@ -158,9 +152,15 @@ function createServer(options = {}) {
         return;
       }
 
-      const keyMatch = url.pathname.match(/^\/api\/admin\/wma-credentials(?:\/([^/]+))?(?:\/(agents))?$/);
+      const keyMatch = url.pathname.match(/^\/api\/admin\/wma-credentials(?:\/([^/]+))?(?:\/(agents|versions|credential-versions))?$/);
       if (keyMatch) {
         const [, id, action] = keyMatch;
+        if (request.method === "POST" && ["versions", "credential-versions"].includes(action) && id) {
+          const input = { ...await readJson(request, config.bodyLimitBytes), credentialConfigId: id };
+          if (action === "versions") send(response, 200, { items: await listAgentVersions(input) });
+          else send(response, 201, await createCredentialVersion(input));
+          return;
+        }
         if (request.method === "POST" && action === "agents" && id) {
           const key = registry.getWmaCredential(id, { secrets: true });
           if (!key) throw new Error("WMA credential configuration not found");
@@ -264,15 +264,13 @@ function createServer(options = {}) {
         }
         if (request.method === "POST" && !id) {
           const input = await readJson(request, config.bodyLimitBytes);
-          await validateWmaSelection(input);
-          const saved = registry.saveAgent(input);
+          const saved = await saveAgentConfiguration(input);
           send(response, 201, saved);
           return;
         }
         if (request.method === "PUT" && id && !action) {
           const input = await readJson(request, config.bodyLimitBytes);
-          await validateWmaSelection(input, registry.getAgent(id, { secrets: true }));
-          const saved = registry.saveAgent(input, id);
+          const saved = await saveAgentConfiguration(input, id);
           botManager.sync();
           send(response, 200, saved);
           return;

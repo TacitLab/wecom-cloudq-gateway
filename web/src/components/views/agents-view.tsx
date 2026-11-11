@@ -77,7 +77,7 @@ export function AgentsView({
               <TableHead>Agent ID</TableHead>
               <TableHead>凭据</TableHead>
               <TableHead>接入来源</TableHead>
-              <TableHead>版本</TableHead>
+              <TableHead>WMA 版本</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -94,7 +94,16 @@ export function AgentsView({
                   {a.credentialName ?? <span className="text-muted-foreground">手动</span>}
                 </TableCell>
                 <TableCell>WMA · 腾讯云 AK/SK</TableCell>
-                <TableCell>r{a.revision}</TableCell>
+                <TableCell>
+                  {a.wmaVersionId ? (
+                    <div className="grid gap-1 text-xs">
+                      <span>{a.wmaVersionName || '固定版本'}</span>
+                      <span className="font-mono text-muted-foreground">{a.wmaVersionId}</span>
+                      {a.runtimeCredentialName && <span className="text-muted-foreground">{a.runtimeCredentialName} · {a.runtimeRegion}</span>}
+                      {a.runtimeCredentialOutdated && <span className="text-amber-700 dark:text-amber-400">凭证待同步</span>}
+                    </div>
+                  ) : <span className="text-xs text-muted-foreground">跟随 WMA 路由</span>}
+                </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => testAgent(a.id)}>

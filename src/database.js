@@ -162,6 +162,39 @@ function db() {
       PRIMARY KEY(job_id, ordinal)
     );
   `);
+  // Additive migration: existing Agents continue to follow the WMA route.
+  const agentColumns = new Set(database.prepare("PRAGMA table_info(wma_agents)").all().map((column) => column.name));
+  for (const [name, definition] of Object.entries({
+    runtime_credential_id: "TEXT REFERENCES tencent_credentials(id) ON DELETE RESTRICT",
+    runtime_region: "TEXT",
+    wma_version_id: "TEXT",
+    wma_version_name: "TEXT",
+    runtime_credential_updated_at: "INTEGER",
+  })) {
+    if (!agentColumns.has(name)) database.exec(`ALTER TABLE wma_agents ADD COLUMN ${name} ${definition}`);
+  }
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS wma_credential_versions (
+      credential_config_id TEXT NOT NULL REFERENCES wma_credentials(id) ON DELETE CASCADE,
+      business_agent_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      version_name TEXT NOT NULL,
+      source_version_id TEXT,
+      source_version_name TEXT,
+      runtime_credential_id TEXT,
+      runtime_credential_name TEXT NOT NULL,
+      runtime_region TEXT NOT NULL,
+      runtime_credential_updated_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (credential_config_id,business_agent_id,version_id)
+    );
+    INSERT OR IGNORE INTO wma_credential_versions
+      (credential_config_id,business_agent_id,version_id,version_name,runtime_credential_id,runtime_credential_name,runtime_region,runtime_credential_updated_at,created_at)
+    SELECT a.credential_config_id,a.business_agent_id,a.wma_version_id,COALESCE(a.wma_version_name,''),
+      a.runtime_credential_id,c.name,COALESCE(a.runtime_region,'ap-guangzhou'),COALESCE(a.runtime_credential_updated_at,c.updated_at),a.updated_at
+    FROM wma_agents a JOIN tencent_credentials c ON c.id=a.runtime_credential_id
+    WHERE a.wma_version_id IS NOT NULL;
+  `);
   require("./prepare-wma-storage").prepareBotBindings(database);
   return database;
 }

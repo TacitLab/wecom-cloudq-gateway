@@ -72,7 +72,7 @@ function deleteWmaCredential(id) {
   if (!db().prepare("DELETE FROM wma_credentials WHERE id=?").run(id).changes) throw new Error("WMA credential configuration not found");
 }
 
-const AGENT_SELECT = `SELECT a.*, c.name AS credential_name,c.region,c.secret_id,c.secret_key FROM wma_agents a JOIN wma_credentials c ON c.id=a.credential_config_id`;
+const AGENT_SELECT = `SELECT a.*, c.name AS credential_name,c.region,c.secret_id,c.secret_key,COALESCE(r.name,v.runtime_credential_name) AS runtime_credential_name,r.updated_at AS runtime_credential_current_updated_at,v.runtime_credential_id AS recorded_runtime_credential_id FROM wma_agents a JOIN wma_credentials c ON c.id=a.credential_config_id LEFT JOIN tencent_credentials r ON r.id=a.runtime_credential_id LEFT JOIN wma_credential_versions v ON v.credential_config_id=a.credential_config_id AND v.business_agent_id=a.business_agent_id AND v.version_id=a.wma_version_id`;
 function agentFromRow(row, { secrets = false } = {}) {
   if (!row) return undefined;
   return {
@@ -82,6 +82,12 @@ function agentFromRow(row, { secrets = false } = {}) {
     ...(secrets ? { secretId: row.secret_id, secretKey: row.secret_key } : {}),
     controlTimeoutMs: row.control_timeout_ms, promptTimeoutMs: row.prompt_timeout_ms,
     includeThinking: Boolean(row.include_thinking), revision: row.revision,
+    runtimeCredentialId: row.runtime_credential_id || null,
+    runtimeCredentialName: row.runtime_credential_name || null,
+    runtimeRegion: row.runtime_region || null,
+    wmaVersionId: row.wma_version_id || null, wmaVersionName: row.wma_version_name || null,
+    runtimeCredentialUpdatedAt: row.runtime_credential_updated_at || null,
+    runtimeCredentialOutdated: Boolean((row.runtime_credential_id || row.recorded_runtime_credential_id) && row.runtime_credential_updated_at !== row.runtime_credential_current_updated_at),
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -94,8 +100,34 @@ function getAgent(id, options) {
 function findAgentByBusinessId(agentId, credentialConfigId) {
   return agentFromRow(db().prepare(`${AGENT_SELECT} WHERE a.business_agent_id=? AND a.credential_config_id=?`).get(String(agentId || "").trim(), credentialConfigId));
 }
-function saveAgent(input, id) {
-  const database = db();
+function credentialVersionFromRow(row) {
+  if (!row) return undefined;
+  return {
+    versionId: row.version_id, versionName: row.version_name, sourceVersionId: row.source_version_id,
+    sourceVersionName: row.source_version_name, runtimeCredentialId: row.runtime_credential_id,
+    runtimeCredentialName: row.current_credential_name || row.runtime_credential_name,
+    runtimeRegion: row.runtime_region, runtimeCredentialUpdatedAt: row.runtime_credential_updated_at,
+    runtimeCredentialOutdated: row.current_credential_updated_at !== row.runtime_credential_updated_at,
+    createdAt: row.created_at, injected: true,
+  };
+}
+function getCredentialVersion(credentialConfigId, agentId, versionId) {
+  return credentialVersionFromRow(db().prepare(`
+    SELECT v.*,c.name AS current_credential_name,c.updated_at AS current_credential_updated_at
+    FROM wma_credential_versions v LEFT JOIN tencent_credentials c ON c.id=v.runtime_credential_id
+    WHERE v.credential_config_id=? AND v.business_agent_id=? AND v.version_id=?
+  `).get(credentialConfigId, agentId, versionId));
+}
+function saveCredentialVersion(credentialConfigId, agentId, version, source, credential, region) {
+  db().prepare(`
+    INSERT INTO wma_credential_versions
+      (credential_config_id,business_agent_id,version_id,version_name,source_version_id,source_version_name,runtime_credential_id,runtime_credential_name,runtime_region,runtime_credential_updated_at,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+  `).run(credentialConfigId, agentId, version.versionId, String(version.versionName || ""), source.versionId,
+    String(source.versionName || ""), credential.id, credential.name, region, credential.updatedAt, Date.now());
+  return getCredentialVersion(credentialConfigId, agentId, version.versionId);
+}
+function validateAgentInput(input, id) {
   const existing = id ? getAgent(id) : undefined;
   if (id && !existing) throw new Error("WMA Agent configuration not found");
   const credentialConfigId = text(input.credentialConfigId, "WMA credential configuration", { max: 100 });
@@ -104,14 +136,33 @@ function saveAgent(input, id) {
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) throw new Error("Invalid WMA Agent ID");
   const duplicate = findAgentByBusinessId(agentId, credentialConfigId);
   if (duplicate && duplicate.id !== id) throw new Error("WMA Agent is already added for this credential");
+  return {
+    existing, credentialConfigId, agentId,
+    name: text(input.name || agentId, "Agent name", { max: 100 }),
+    controlTimeoutMs: positiveInteger(input.controlTimeoutMs, 30000, "Control timeout"),
+    promptTimeoutMs: positiveInteger(input.promptTimeoutMs, 1200000, "Prompt timeout"),
+    includeThinking: Boolean(input.includeThinking),
+  };
+}
+function saveAgent(input, id, { runtimeVersion } = {}) {
+  const database = db();
+  const record = validateAgentInput(input, id);
+  const { existing, credentialConfigId, agentId } = record;
+  const sameIdentity = existing?.agentId === agentId && existing?.credentialConfigId === credentialConfigId;
+  const runtime = runtimeVersion === undefined ? (sameIdentity ? existing : {}) : runtimeVersion || {};
   const now = Date.now();
   const recordId = id || crypto.randomUUID();
   database.prepare(`
-    INSERT INTO wma_agents (id,name,business_agent_id,credential_config_id,control_timeout_ms,prompt_timeout_ms,include_thinking,revision,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,business_agent_id=excluded.business_agent_id,credential_config_id=excluded.credential_config_id,control_timeout_ms=excluded.control_timeout_ms,prompt_timeout_ms=excluded.prompt_timeout_ms,include_thinking=excluded.include_thinking,revision=excluded.revision,updated_at=excluded.updated_at
-  `).run(recordId,text(input.name || agentId,"Agent name",{max:100}),agentId,credentialConfigId,
-    positiveInteger(input.controlTimeoutMs,30000,"Control timeout"),positiveInteger(input.promptTimeoutMs,1200000,"Prompt timeout"),input.includeThinking?1:0,(existing?.revision||0)+1,existing?.createdAt||now,now);
+    INSERT INTO wma_agents (id,name,business_agent_id,credential_config_id,control_timeout_ms,prompt_timeout_ms,include_thinking,revision,created_at,updated_at,runtime_credential_id,runtime_region,wma_version_id,wma_version_name,runtime_credential_updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,business_agent_id=excluded.business_agent_id,credential_config_id=excluded.credential_config_id,control_timeout_ms=excluded.control_timeout_ms,prompt_timeout_ms=excluded.prompt_timeout_ms,include_thinking=excluded.include_thinking,revision=excluded.revision,updated_at=excluded.updated_at,runtime_credential_id=excluded.runtime_credential_id,runtime_region=excluded.runtime_region,wma_version_id=excluded.wma_version_id,wma_version_name=excluded.wma_version_name,runtime_credential_updated_at=excluded.runtime_credential_updated_at
+  `).run(recordId,record.name,agentId,credentialConfigId,record.controlTimeoutMs,record.promptTimeoutMs,
+    record.includeThinking?1:0,(existing?.revision||0)+1,existing?.createdAt||now,now,
+    runtime.runtimeCredentialId || null,runtime.runtimeRegion || null,runtime.wmaVersionId || null,
+    runtime.wmaVersionName || null,runtime.runtimeCredentialUpdatedAt || null);
+  if (existing && (!sameIdentity || existing.wmaVersionId !== (runtime.wmaVersionId || null))) {
+    database.prepare("DELETE FROM wma_conversations WHERE agent_config_id=?").run(recordId);
+  }
   return getAgent(recordId);
 }
 function deleteAgent(id) {
@@ -166,7 +217,7 @@ function saveTencentCredential(input, id) {
   if (id && !existing) throw new Error("Tencent Cloud credential not found");
   const secretId = text(input.secretId, "Tencent Cloud SecretId", { required: !existing, max: 256 });
   const secretKey = text(input.secretKey, "Tencent Cloud SecretKey", { required: !existing, max: 256 });
-  const now = Date.now();
+  const now = Math.max(Date.now(), (existing?.updated_at || 0) + 1);
   const record = {
     id: existing?.id || crypto.randomUUID(),
     name: text(input.name, "Credential name", { max: 100 }),
@@ -189,6 +240,9 @@ function saveTencentCredential(input, id) {
 }
 
 function deleteTencentCredential(id) {
+  if (db().prepare("SELECT COUNT(*) AS count FROM wma_agents WHERE runtime_credential_id=?").get(id).count) {
+    throw new Error("Tencent Cloud credential is still used by one or more WMA Agent versions");
+  }
   const refs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE credential_id = ? OR diagnostic_credential_id = ?").get(id, id).count;
   if (refs) throw new Error("Tencent Cloud credential is still used by one or more alert integrations");
   if (!db().prepare("DELETE FROM tencent_credentials WHERE id = ?").run(id).changes) {
@@ -253,6 +307,8 @@ module.exports = {
   deleteWmaCredential,
   deleteTencentCredential,
   findAgentByBusinessId,
+  getCredentialVersion,
+  saveCredentialVersion,
   getAgent,
   getBot,
   getWmaCredential,
@@ -264,6 +320,7 @@ module.exports = {
   pairForBot,
   resetAgentSessions,
   saveAgent,
+  validateAgentInput,
   saveBot,
   saveWmaCredential,
   saveTencentCredential,

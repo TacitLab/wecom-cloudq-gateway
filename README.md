@@ -176,6 +176,16 @@ npm start
 
 本分支只支持腾讯云 AK/SK 接入 WMA。凭证、Agent、聊天 Session 和任务分别存入新表 `wma_credentials`、`wma_agents`、`wma_conversations`、`wma_tasks`。没有旧 CloudAgent SDK、WorkBuddy API Key、provider 路由、启动 Manifest 或本地 Runtime ID 兼容路径。
 
+### Agent 运行时云凭证版本
+
+新增或编辑 Agent，展开“高级配置”，可以在“使用版本”中手动选择任意可用的 WMA 版本，或选择“跟随 WMA 路由”。“创建凭证注入版”是独立操作：先选择源版本、腾讯云凭证及云资源地域，再点击“创建凭证注入版”。网关通过腾讯云 WMA API `CreateAgentVersionFromSource` 创建独立 PROD 版本，将 AK/SK 和地域写入 Manifest 的 `envs`（`TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY`、`TENCENTCLOUD_REGION`），追加优先使用环境认证的系统提示词，并保留所选源版本的技能、工具和其他配置。源版本必须显式选择；需要同步控制台新提示词时，请选择包含该修改的源版本。
+
+创建成功后显示新版本 ID、源版本和凭证信息，但不会自动选择、保存或切换版本。点击“选择此注入版”（也可手动从“使用版本”选择），然后点击“保存”，才会改变本地 Agent 绑定。即使取消编辑，已经创建的云端版本仍保留，可以稍后刷新版本列表重新选择。本地 `wma_credential_versions` 只记录版本来源、凭证引用/名称、地域及凭证更新时间，不保存 Manifest 副本；管理 API 不返回 Manifest 或凭证正文。旧的已绑定注入版本会自动补充为“历史注入版”，保留原版本绑定和会话。
+
+保存只验证并绑定所选版本，不会创建版本或更改 WMA 共享流量路由。后端通过 `DescribeAgentVersion` 检查版本归属和可用状态。普通聊天及告警诊断创建新会话时显式传入 `VersionId`，发送消息前再核对 Session 实际版本；版本不符时停止使用该会话。切换版本会清除本地旧会话映射，后续消息进入新会话。`CreateAgentSession` 不支持直接传入 `Envs`。
+
+凭证轮换不会自动更新云端版本，保存 Agent 也不会隐式生成新版本。出现“凭证待同步”时，请显式创建新注入版，再选择并保存。选择“跟随 WMA 路由”只解除本地版本绑定，已有云端版本和会话中的凭证仍保留，应通过 WMA 管理及腾讯云密钥轮换处理。当前被 Agent 引用的腾讯云凭证不可删除。AK/SK 会真实存入 WMA 版本的环境配置，拥有版本读取或工具执行权限的主体可能访问它们；请选择适合该 Agent 使用范围的凭证。
+
 旧 `api_keys`、`cloud_agents`、`conversations`、`tasks` 表不读取、不迁移，可保留在数据库内作为旧数据留存。新安装不会创建这些表。升级到本分支后，需要重新录入 WMA AK/SK，并从列表选择 Agent。
 
 **Bot 与告警配置保留。** 首次启动会执行一次性 Bot 绑定结构切换：保留 Bot ID、Secret、开关和会话设置，解除旧 Agent 绑定；保留告警策略、诊断模板、凭证引用和群绑定。旧 Agent 相关的未完成告警任务标记失败，避免误用新 Agent 继续执行。切换过程在事务内校验外键，重新启动不会重复解绑已经绑定的 WMA Agent。

@@ -25,8 +25,7 @@ export function TencentCredentialDialog({
         <DialogHeader>
           <DialogTitle>腾讯云凭证</DialogTitle>
           <DialogDescription>
-            在腾讯云控制台（访问管理 → API 密钥管理）获取 SecretId / SecretKey，用于告警 RCA
-            轮询腾讯云监控。
+            在腾讯云控制台（访问管理 → API 密钥管理）获取 SecretId / SecretKey，用于 Agent 运行时云认证及告警 RCA。
           </DialogDescription>
         </DialogHeader>
         {open && (
