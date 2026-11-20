@@ -1,0 +1,22 @@
+{
+  "brand": "CloudQ Gateway",
+  "stage": "A (a-bold-original) selected by user; color exploration continues in ../q-colors",
+  "method": "Built-in image generation; original selected Q used as edit reference",
+  "concepts": [
+    {
+      "id": "a-bold-original",
+      "title": "原形加粗",
+      "prompt": "Edit the referenced CloudQ Gateway Q logo into a heavier small-icon-friendly variant. Preserve the original recognizable squircle Q / conversation portal idea and its asymmetric lower-right exit, same overall silhouette character. Increase the ring/body thickness substantially: approximately 24% of the outer symbol width; a central counter about 45% of the symbol width, still open and clear. Shorten the outgoing diagonal tail by 25%, make its end broad and rounded. Replace the very sharp inward wedge at the inner lower-right corner with one broad simple notch that survives reduction; no fine spikes, no hairline cuts. Optical balance and extremely clean coherent curves are critical. This variant should feel like the original carefully strengthened, not a new logo. ONE symbol only, centered and optically centered within a SQUARE pure white #FFFFFF canvas. Symbol is uniform flat BLACK #111111, occupying 88% of canvas width and 88% height; tight but safe equal margins. Vector-like precision, genuinely flat fills. No text, no letters other than the Q-shaped symbol, no labels, no gradients, no shadows, no texture, no mockup, no container tile, no extra decorative elements. Designed to remain confident at 16 by 16 pixels."
+    },
+    {
+      "id": "b-square-gateway",
+      "title": "方正厚重",
+      "prompt": "Edit the referenced CloudQ Gateway Q logo into a compact bold architectural GATEWAY variant, same Q / dialogue portal concept, same lower-right diagonal exit. Strengthen it for a 16px favicon. Outer silhouette closer to a square portal with moderately rounded corners (corner radius around 22% of symbol width), substantially heavier ring thickness around 26% of outer width. Central counter is a clean rounded rectangle, with at most ONE blunt generous notch toward the exit; eliminate the original long needle-like interior point completely. Lower-right Q tail is short, broad and decisive, aligned 45 degrees, with a subtly softened nearly square end; integrate it directly into the body so it is not a separate tiny stroke. Have a sturdy precisely engineered gateway personality, more compact and robust than reference. Balanced width and height, no stretched circle. ONE standalone uniform flat BLACK #111111 symbol on pure white #FFFFFF square canvas, symbol fills 88% of width and 88% of height with even safe margin. Vector-like precision. No words, no labels, no letters other than the Q shape, no background tile, no outline-only styling, no gradient, texture, shadow, 3D or added graphics. High-end carefully resolved identity design."
+    },
+    {
+      "id": "c-soft-compact",
+      "title": "圆润紧凑",
+      "prompt": "Edit the referenced CloudQ Gateway Q logo into a soft, compact, extremely bold Q / speech-portal variant for small app icons. Preserve the unmistakable Q silhouette and lower-right conversation/exit tail, but make outer corners noticeably more circular and friendly, a rounded nearly-square pebble rather than a plain circular Q. Ring thickness about 25% of symbol width. Inner negative space is a generously rounded compact rectangle, totally clear at small size, with NO narrow inward spike or hairline gap. Let the Q tail emerge as one SHORT broad softly rounded diagonal extension of the body; a gentle broad inner bend suggests dialogue. The original tail and counter detail are simplified aggressively. Do not turn it into a magnifying glass. Calm, dependable and approachable. ONE uniform flat BLACK #111111 symbol only. Pure white #FFFFFF square canvas. Symbol occupies 88% of canvas width and 88% of height, optically centered, equal tight safe margins. Vector-like clean curves and flat solid fills. No type, no labels, no text, no gradients, no shadows, no texture, no tile or extra objects. It must stay legible and visually heavy at actual 16px."
+    }
+  ]
+}

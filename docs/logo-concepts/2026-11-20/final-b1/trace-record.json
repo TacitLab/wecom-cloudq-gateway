@@ -1,0 +1,34 @@
+{
+  "source": "docs/logo-concepts/2026-11-20/q-colors/b1-blue-aqua.png",
+  "method": "Potrace 2.1.8; color-boundary tracing; original approved contours preserved",
+  "traceParameters": {
+    "threshold": 130,
+    "turdSize": 40,
+    "alphaMax": 1,
+    "optTolerance": 0.8
+  },
+  "sourceBounds": {
+    "x": 131,
+    "y": 127,
+    "width": 985,
+    "height": 1018
+  },
+  "icon": {
+    "viewBox": "0 0 64 64",
+    "artworkMaxDimension": 56,
+    "transform": "matrix(0.055009823 0 0 0.055009823 -2.298625 -2.986248)"
+  },
+  "colors": {
+    "outer": "#2456DF",
+    "inner": "#6DE2CF",
+    "ink": "#142238"
+  },
+  "wordmark": {
+    "family": "Geist",
+    "weight": 600,
+    "license": "OFL-1.1",
+    "size": 32,
+    "tracking": -9,
+    "outlined": true
+  }
+}

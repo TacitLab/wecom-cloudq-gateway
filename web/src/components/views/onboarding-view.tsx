@@ -60,11 +60,16 @@ export function OnboardingPage({
     <div className="min-h-svh bg-muted/40">
       <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col px-6 py-10">
         <div className="mb-8 flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-sm font-extrabold tracking-tighter text-primary-foreground">
-            CA
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}favicon.svg?v=cloudq-b1-1`}
+            alt=""
+            aria-hidden="true"
+            width={36}
+            height={36}
+            className="size-9 shrink-0"
+          />
           <div>
-            <div className="font-semibold leading-tight">Agent 消息网关</div>
+            <div className="font-semibold leading-tight">CloudQ Gateway</div>
             <div className="text-xs text-muted-foreground">首次配置向导</div>
           </div>
         </div>

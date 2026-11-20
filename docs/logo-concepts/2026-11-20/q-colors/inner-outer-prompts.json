@@ -1,0 +1,35 @@
+{
+  "brand": "CloudQ Gateway",
+  "stage": "B1 (b1-blue-aqua) selected by user; traced production assets delivered in web/public/brand",
+  "method": "Built-in image generation editing approved A reference, filling entire Q frame and interior speech bubble separately",
+  "reference": "../q-refinements/a-bold-original.png",
+  "concepts": [
+    {
+      "id": "b1-blue-aqua",
+      "title": "蓝色 × 浅青",
+      "colors": [
+        "#2456DF",
+        "#6DE2CF"
+      ],
+      "prompt": "Use case: precise-object-edit / logo-brand. Recolor the supplied APPROVED black A logo for CloudQ Gateway. Preserve EXACTLY the original outer Q silhouette, its heavy rounded-square body, short broad lower-right Q tail, original central speech-bubble shaped counter with curved speech point, exact scale, position, proportions and white square background. Only change fills. NEW REQUEST: two colors arranged INSIDE versus OUTSIDE, NOT a diagonal split. The ENTIRE original black Q body AND its tail must be ONE uninterrupted solid outer color. Fill the ENTIRE original WHITE INNER speech-bubble-shaped hole with ONE solid contrasting inner color, perfectly meeting the inner edge of the original black Q without any gap. This produces a colored speech bubble nested inside a continuous colored Q frame. Keep the whitespace OUTSIDE the outer Q pure white #FFFFFF. DO NOT add another ring, outline, border, inset, separator or white moat. NO diagonal color division, no separately-colored tail, no wedge or cut across the body, no gradients. The interior colored bubble must exactly preserve the original white counter shape including its small speech point. Thick bold crisp flat vector-like colors, no shading, no texture, no glow, no 3D. One logo symbol only, no words or text, no extra graphics. Outer Q frame and Q tail: vivid cobalt blue #2456DF. Entire inner speech bubble: clean light aqua #6DE2CF. Cool fresh contrasting color pair, clear distinction between outer and inner, the bright interior gives a lively focal point while the strong cobalt contour remains legible when tiny. Keep both fills completely flat."
+    },
+    {
+      "id": "b2-navy-apricot",
+      "title": "深蓝 × 杏橙",
+      "colors": [
+        "#173B71",
+        "#FFB17F"
+      ],
+      "prompt": "Use case: precise-object-edit / logo-brand. Recolor the supplied APPROVED black A logo for CloudQ Gateway. Preserve EXACTLY the original outer Q silhouette, its heavy rounded-square body, short broad lower-right Q tail, original central speech-bubble shaped counter with curved speech point, exact scale, position, proportions and white square background. Only change fills. NEW REQUEST: two colors arranged INSIDE versus OUTSIDE, NOT a diagonal split. The ENTIRE original black Q body AND its tail must be ONE uninterrupted solid outer color. Fill the ENTIRE original WHITE INNER speech-bubble-shaped hole with ONE solid contrasting inner color, perfectly meeting the inner edge of the original black Q without any gap. This produces a colored speech bubble nested inside a continuous colored Q frame. Keep the whitespace OUTSIDE the outer Q pure white #FFFFFF. DO NOT add another ring, outline, border, inset, separator or white moat. NO diagonal color division, no separately-colored tail, no wedge or cut across the body, no gradients. The interior colored bubble must exactly preserve the original white counter shape including its small speech point. Thick bold crisp flat vector-like colors, no shading, no texture, no glow, no 3D. One logo symbol only, no words or text, no extra graphics. Outer Q frame and Q tail: deep ink navy #173B71. Entire inner speech bubble: warm vivid apricot orange #FFB17F. Warm interior held by a calm professional navy exterior, distinctive pleasing contrast, approachable yet authoritative. Inner orange speech bubble is a solid, substantial central shape, not an outline. Keep both fills completely flat."
+    },
+    {
+      "id": "b3-petrol-mint",
+      "title": "墨青 × 薄荷",
+      "colors": [
+        "#075D63",
+        "#8BE0B5"
+      ],
+      "prompt": "Use case: precise-object-edit / logo-brand. Recolor the supplied APPROVED black A logo for CloudQ Gateway. Preserve EXACTLY the original outer Q silhouette, its heavy rounded-square body, short broad lower-right Q tail, original central speech-bubble shaped counter with curved speech point, exact scale, position, proportions and white square background. Only change fills. NEW REQUEST: two colors arranged INSIDE versus OUTSIDE, NOT a diagonal split. The ENTIRE original black Q body AND its tail must be ONE uninterrupted solid outer color. Fill the ENTIRE original WHITE INNER speech-bubble-shaped hole with ONE solid contrasting inner color, perfectly meeting the inner edge of the original black Q without any gap. This produces a colored speech bubble nested inside a continuous colored Q frame. Keep the whitespace OUTSIDE the outer Q pure white #FFFFFF. DO NOT add another ring, outline, border, inset, separator or white moat. NO diagonal color division, no separately-colored tail, no wedge or cut across the body, no gradients. The interior colored bubble must exactly preserve the original white counter shape including its small speech point. Thick bold crisp flat vector-like colors, no shading, no texture, no glow, no 3D. One logo symbol only, no words or text, no extra graphics. Outer Q frame and Q tail: rich deep petrol teal #075D63. Entire inner speech bubble: luminous but solid mint green #8BE0B5. Harmonious same-family dark-versus-light contrast, calm sophisticated freshness. The dark exterior remains very readable at 16px, the central mint interior feels like an answer appearing within the gateway. Keep both fills completely flat."
+    }
+  ]
+}

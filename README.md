@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/readme-hero.png" width="1200" alt="企业微信 CloudQ 运维网关 — 告警自动分析、结论主动送达；示意中 Agent 先推送分析和 HTML 报告，用户随后请求协助修复。">
+  <img src="docs/assets/readme-hero.png" width="1200" alt="CloudQ Gateway — 告警自动分析、结论主动送达；示意中 Agent 先推送分析和 HTML 报告，用户随后请求协助修复。">
 </p>
 
 <p align="center">

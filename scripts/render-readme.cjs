@@ -11,12 +11,11 @@ const root = path.resolve(__dirname, "..");
 const output = path.join(root, "docs", "assets");
 fs.mkdirSync(output, { recursive: true });
 const logo = fs.readFileSync(path.join(root, "web", "public", "favicon.svg"), "utf8")
-  .replace(/<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "")
-  .replace(/\s+rx="[^"]*"/g, "");
+  .replace(/<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
 const font = 'font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif"';
 const text = (x, y, value, size = 18, fill = "#edf5fc", weight = 400, extra = "") =>
   `<text x="${x}" y="${y}" ${font} font-size="${size}" fill="${fill}" font-weight="${weight}" ${extra}>${value}</text>`;
-// Square corners throughout README artwork, including the monogram backing.
+// README layout keeps square corners; the canonical logo geometry is unchanged.
 const rect = (x, y, w, h, fill, stroke = "none", extra = "") =>
   `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}" ${extra}/>`;
 const line = (x1, y1, x2, y2, color, width = 1, extra = "") =>
@@ -33,7 +32,7 @@ function hero() {
     '<path d="M1200 44H1180V84H1140" fill="none" stroke="#21445f" stroke-width="2"/>',
     mark(60, 40, 30),
     text(106, 61, "CLOUDQ GATEWAY / WECOM × WMA", 14, "#a9c6dd", 500, 'letter-spacing="1.4"'),
-    text(58, 145, "企业微信 CloudQ 运维网关", 40, "#f4f8fc", 600),
+    text(58, 145, "CloudQ Gateway", 46, "#f4f8fc", 600),
     text(60, 204, "告警自动分析，结论主动送达。", 23, "#b5def7", 500),
     text(60, 243, "在群里继续追问，让 Agent 协助修复。", 21, "#95b3c9"),
     // Product illustration, explicitly labeled; no real user or cloud data.

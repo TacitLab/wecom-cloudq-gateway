@@ -1,0 +1,36 @@
+{
+  "brand": "CloudQ Gateway",
+  "stage": "A shape selected; color exploration",
+  "method": "Built-in image generation editing the approved A reference; independent typesetting",
+  "reference": "../q-refinements/a-bold-original.png",
+  "concepts": [
+    {
+      "id": "a1-blue-teal",
+      "title": "海蓝青绿",
+      "colors": [
+        "#2456DF",
+        "#11A99C"
+      ],
+      "prompt": "Use case: precise-object-edit / logo-brand. Edit the supplied CloudQ Gateway logo. This exact A symbol has ALREADY BEEN APPROVED: preserve its outer contour, chunky weight, optical proportions, large rounded inner counter, distinctive inner speech-point notch, short broad rounded lower-right Q tail, original scale, position and white square canvas. Treat the original black silhouette as a fixed clipping mask: ONLY change the fill colors inside that silhouette. Do not redesign or simplify any edge. Keep the canvas and inner negative space pure white #FFFFFF. Same geometry, same crop, same size. Flat vector-style finish with crisp clean edges. ONE logo symbol only, no text, no labels, no wordmark, no frames, no new holes, no outlines, no shadows, no texture, no gloss, no 3D. Maintain strong small-icon legibility, avoid near-white colors. COLORWAY A1: vivid deep cobalt blue #2456DF for approximately 78 percent of the body, and saturated teal #11A99C for the lower-right exit / tail and immediately adjacent right/lower body, approximately 22 percent. Make ONE simple flat diagonal color division, rising from lower-left to upper-right across the lower-right quadrant; the division echoes the tail's diagonal exit direction. Colors meet seamlessly without a gap, separator, extra white slice, extra border or internal symbol. The cobalt owns top and left, teal identifies the outgoing message / gateway exit. Refined B2B developer brand, lively and trustworthy. No gradient; just two clearly separated flat fills within the unchanged approved contour."
+    },
+    {
+      "id": "a2-blue-coral",
+      "title": "深蓝珊瑚",
+      "colors": [
+        "#173B71",
+        "#F07858"
+      ],
+      "prompt": "Use case: precise-object-edit / logo-brand. Edit the supplied CloudQ Gateway logo. This exact A symbol has ALREADY BEEN APPROVED: preserve its outer contour, chunky weight, optical proportions, large rounded inner counter, distinctive inner speech-point notch, short broad rounded lower-right Q tail, original scale, position and white square canvas. Treat the original black silhouette as a fixed clipping mask: ONLY change the fill colors inside that silhouette. Do not redesign or simplify any edge. Keep the canvas and inner negative space pure white #FFFFFF. Same geometry, same crop, same size. Flat vector-style finish with crisp clean edges. ONE logo symbol only, no text, no labels, no wordmark, no frames, no new holes, no outlines, no shadows, no texture, no gloss, no 3D. Maintain strong small-icon legibility, avoid near-white colors. COLORWAY A2: deep ink navy blue #173B71 over the majority of the ring and a warm saturated coral orange #F07858 on the outgoing lower-right Q tail and its adjacent lower-right corner, approximately 18 percent of total logo area. Precisely contained accent on exit, with ONE simple diagonal flat division between two solid colors. Preserve the speech-point notch exactly, do not add shapes. Colors directly meet with no white separation, gap or extra outline. The result should feel dependable but human and more recognizable than an all-blue technology icon. No gradient; two excellent flat colors, visually integrated."
+    },
+    {
+      "id": "a3-teal-flow",
+      "title": "青绿流光",
+      "colors": [
+        "#006B77",
+        "#169F8A",
+        "#72BA45"
+      ],
+      "prompt": "Use case: precise-object-edit / logo-brand. Edit the supplied CloudQ Gateway logo. This exact A symbol has ALREADY BEEN APPROVED: preserve its outer contour, chunky weight, optical proportions, large rounded inner counter, distinctive inner speech-point notch, short broad rounded lower-right Q tail, original scale, position and white square canvas. Treat the original black silhouette as a fixed clipping mask: ONLY change the fill colors inside that silhouette. Do not redesign or simplify any edge. Keep the canvas and inner negative space pure white #FFFFFF. Same geometry, same crop, same size. Flat vector-style finish with crisp clean edges. ONE logo symbol only, no text, no labels, no wordmark, no frames, no new holes, no outlines, no shadows, no texture, no gloss, no 3D. Maintain strong small-icon legibility, avoid near-white colors. COLORWAY A3: a controlled smooth color flow from rich dark petrol teal #006B77 in the upper-left of the ring, through saturated jade green #169F8A in the lower/right body, to a restrained vivid leaf green #72BA45 at the outgoing Q tail. ONE clean continuous directional gradient running upper-left to lower-right through the same unchanged silhouette. It must remain rich and readable, no pale mint, no white, no yellow, no rainbow, no blue-purple AI gradient, no shimmer or lighting. This is a flat graphic color ramp, not 3D material. Fresh, energetic, premium technical brand. Preserve original opaque solid density, thickness and every contour exactly."
+    }
+  ]
+}

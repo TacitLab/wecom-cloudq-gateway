@@ -6,7 +6,7 @@
 - `pipeline.svg` / `pipeline.png`：1200 × 296 静态工作流程。
 - `pipeline.gif`：同尺寸的四步流程动图，4 秒循环。文字始终可见，移动信号与节点高亮指示步骤；首页同时提供静态版链接。
 
-Banner、交互示意和流程节点统一使用直角。生成源文件为 [`scripts/render-readme.cjs`](../../scripts/render-readme.cjs)，复用 `web/public/favicon.svg` 的字形，并在 README 中使用直角背板。PNG 用于保证常见 Markdown 渲染器的兼容性，SVG 保留可编辑的矢量输出。
+Banner、交互示意和流程节点使用直角。生成源文件为 [`scripts/render-readme.cjs`](../../scripts/render-readme.cjs)，直接复用 `web/public/favicon.svg` 中 CloudQ Gateway B1 标志的完整轮廓和固定蓝青配色，不改变其圆角或添加背板。PNG 用于保证常见 Markdown 渲染器的兼容性，SVG 保留可编辑的矢量输出。标志规范与导出见 [`docs/brand.md`](../brand.md)。
 
 ## 重新生成
 

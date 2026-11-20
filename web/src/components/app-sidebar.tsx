@@ -51,7 +51,7 @@ export function AppSidebar({
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" onClick={() => onSwitch('pairings')}>
               <img
-                src={`${import.meta.env.BASE_URL}favicon.svg?v=ca-monogram-1`}
+                src={`${import.meta.env.BASE_URL}favicon.svg?v=cloudq-b1-1`}
                 alt=""
                 aria-hidden="true"
                 width={32}
@@ -59,8 +59,8 @@ export function AppSidebar({
                 className="size-8 shrink-0"
               />
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">消息网关</span>
-                <span className="truncate text-xs text-muted-foreground">Agent Gateway</span>
+                <span className="truncate font-semibold">CloudQ Gateway</span>
+                <span className="truncate text-xs text-muted-foreground">运维消息网关</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
