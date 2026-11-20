@@ -11,6 +11,6 @@ rm -f "$archive"
 cd "$project_dir"
 npm --prefix web ci
 npm --prefix web run build
-zip -qr "$archive" server.js src web/dist node_modules package.json package-lock.json README.md .env.example Dockerfile docker-compose.yml .dockerignore deploy.sh
+zip -qr "$archive" server.js src web/dist web/README.md node_modules package.json package-lock.json README.md docs scripts/render-readme.cjs .env.example Dockerfile docker-compose.yml .dockerignore deploy.sh
 
 echo "$archive"

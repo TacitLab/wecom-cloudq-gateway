@@ -2,7 +2,7 @@
   "name": "wecom-cloudagent-gateway",
   "version": "2.3.0",
   "private": true,
-  "description": "CVM gateway for WeCom Bot conversations and polled Tencent Monitor WMA RCA",
+  "description": "企业微信 × CloudQ 运维网关：基于 WorkBuddy Managed Agents（WMA），支持多 Bot 对话、腾讯云告警自动 RCA、群推送与 HTML 报告交付。",
   "main": "server.js",
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch server.js",

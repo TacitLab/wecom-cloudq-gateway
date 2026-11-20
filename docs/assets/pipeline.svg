@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="296" viewBox="0 0 1200 296" role="img"><title>接入、网关编排、WMA 与 CloudQ 诊断、企业微信结果交付</title><rect x="0" y="0" width="1200" height="296" rx="16" fill="#f2f7fb" stroke="none" />
+<text x="36" y="49" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="28" fill="#15344b" font-weight="600" >从一条消息，到一份分析。</text>
+<text x="1164" y="47" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="13" fill="#587489" font-weight="500" text-anchor="end" letter-spacing="1">WORKFLOW / 流程示意</text>
+<line x1="271" y1="158" x2="333" y2="158" stroke="#a8bfd0" stroke-width="2" />
+<path d="M326 153L333 158L326 163" fill="none" stroke="#a8bfd0" stroke-width="2"/>
+<line x1="568" y1="158" x2="630" y2="158" stroke="#a8bfd0" stroke-width="2" />
+<path d="M623 153L630 158L623 163" fill="none" stroke="#a8bfd0" stroke-width="2"/>
+<line x1="865" y1="158" x2="927" y2="158" stroke="#a8bfd0" stroke-width="2" />
+<path d="M920 153L927 158L920 163" fill="none" stroke="#a8bfd0" stroke-width="2"/>
+<rect x="36" y="92" width="235" height="132" rx="8" fill="#ffffff" stroke="#cedce7" stroke-width="1"/>
+<text x="54" y="120" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="14" fill="#246d9d" font-weight="600" letter-spacing="1">01</text>
+<text x="54" y="161" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="23" fill="#17384f" font-weight="600" >接入</text>
+<text x="54" y="197" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="16" fill="#567084" font-weight="400" >企微对话 / 腾讯云告警</text>
+<rect x="333" y="92" width="235" height="132" rx="8" fill="#ffffff" stroke="#cedce7" stroke-width="1"/>
+<text x="351" y="120" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="14" fill="#246d9d" font-weight="600" letter-spacing="1">02</text>
+<text x="351" y="161" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="23" fill="#17384f" font-weight="600" >网关编排</text>
+<text x="351" y="197" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="16" fill="#567084" font-weight="400" >会话隔离 · 去重 · 调度</text>
+<rect x="630" y="92" width="235" height="132" rx="8" fill="#ffffff" stroke="#cedce7" stroke-width="1"/>
+<text x="648" y="120" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="14" fill="#246d9d" font-weight="600" letter-spacing="1">03</text>
+<text x="648" y="161" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="23" fill="#17384f" font-weight="600" >WMA × CloudQ</text>
+<text x="648" y="197" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="16" fill="#567084" font-weight="400" >托管 Agent · 技能诊断</text>
+<rect x="927" y="92" width="235" height="132" rx="8" fill="#ffffff" stroke="#cedce7" stroke-width="1"/>
+<text x="945" y="120" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="14" fill="#246d9d" font-weight="600" letter-spacing="1">04</text>
+<text x="945" y="161" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="23" fill="#17384f" font-weight="600" >回到企业微信</text>
+<text x="945" y="197" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="16" fill="#567084" font-weight="400" >群内简报 · HTML 附件</text>
+<text x="36" y="268" font-family="Avenir Next, Arial, Heiti SC, Noto Sans CJK SC, sans-serif" font-size="16" fill="#567084" font-weight="400" >对话保持上下文，告警独立诊断；结果回到原对话或绑定群。</text></svg>
