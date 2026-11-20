@@ -1,12 +1,5 @@
 <p align="center">
-  <img src="docs/assets/readme-hero.png" width="1200" alt="CloudQ Gateway — 把云上问题，带回对话。支持企微对话、告警 RCA 和 HTML 报告；右侧为交互示意。">
-</p>
-
-<h1 align="center">企业微信 CloudQ 运维网关</h1>
-
-<p align="center">
-  <strong>在企微里提问，让 Agent 接手诊断，把结果送回群里。</strong><br>
-  企业微信长连接 × WorkBuddy Managed Agents × 腾讯云可观测
+  <img src="docs/assets/readme-hero.png" width="1200" alt="企业微信 CloudQ 运维网关 — 告警自动分析、结论主动送达；示意中 Agent 先推送分析和 HTML 报告，用户随后请求协助修复。">
 </p>
 
 <p align="center">
@@ -16,10 +9,6 @@
   <a href="docs/guide.md">完整指南</a> ·
   <a href="docs/guide.md#development">参与开发</a>
 </p>
-
----
-
-把企业微信变成云上运维的对话入口：平时与 Agent 持续交流，告警发生时自动执行根因分析（RCA），再将简报与 HTML 报告推送到指定群。
 
 网关部署在你自己的 CVM / IDC，通过 **WebSocket 长连接**收发企微消息，通过 **WMA 云 API + ACP SSE**执行 Agent。CloudQ 等技能、工具和业务提示词在 WMA 侧配置，网关负责接入、编排与交付。
 
