@@ -1,6 +1,10 @@
-export type ViewKey = 'pairings' | 'agents' | 'wma-credentials' | 'tencent-credentials' | 'alerts'
+export type ViewKey = 'pairings' | 'agents' | 'wma-credentials' | 'tencent-credentials' | 'alerts' | 'architecture-watches'
 
 export const VIEW_META: Record<ViewKey, { title: string; description: string }> = {
+  'architecture-watches': {
+    title: '架构值守',
+    description: '从腾讯云智能顾问选择架构图，管理待值守的业务架构',
+  },
   pairings: {
     title: '企业微信 Bot 配对',
     description: '管理企业微信 Bot 与 WMA Agent 的唯一绑定关系',
@@ -24,10 +28,16 @@ export const VIEW_META: Record<ViewKey, { title: string; description: string }> 
 }
 
 export function parseView(hash: string): ViewKey | null {
-  const key = hash.replace(/^#/, '') as ViewKey
+  const key = hash.replace(/^#/, '').split('/')[0] as ViewKey
   return key in VIEW_META ? key : null
 }
 
-export function isEmptyState(state: { bots: unknown[]; agents: unknown[]; wmaCredentials: unknown[] }) {
+export function parseWatchId(hash: string): string | null {
+  const match = hash.match(/^#architecture-watches\/([a-zA-Z0-9-]+)$/)
+  return match?.[1] ?? null
+}
+
+export function isEmptyState(state: { bots: unknown[]; agents: unknown[]; wmaCredentials: unknown[]; tencentCredentials?: unknown[]; architectureWatches?: unknown[] }) {
   return state.bots.length === 0 && state.agents.length === 0 && state.wmaCredentials.length === 0
+    && !state.tencentCredentials?.length && !state.architectureWatches?.length
 }

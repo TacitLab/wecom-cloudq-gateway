@@ -14,7 +14,7 @@ const record: AgentConfig = {
   wmaVersionId: 'base-version', wmaVersionName: 'default', runtimeCredentialOutdated: false,
 }
 function state(): AdminState {
-  return { agents: [{ ...record }], bots: [], connections: {}, alertIntegrations: [], alertJobs: [],
+  return { agents: [{ ...record }], bots: [], connections: {}, alertIntegrations: [], alertJobs: [], architectureWatches: [],
     wmaCredentials: [{ id: 'wma-key', name: 'WMA', createdAt: '' }],
     tencentCredentials: [{ id: 'cloud-key', name: '生产只读凭证', createdAt: '' }] }
 }

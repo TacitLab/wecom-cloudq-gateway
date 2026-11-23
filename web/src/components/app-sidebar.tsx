@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BellRing, Bot, CloudCog, KeyRound } from 'lucide-react'
+import { ArrowLeftRight, BellRing, Bot, CloudCog, KeyRound, Network } from 'lucide-react'
 
 import {
   Sidebar,
@@ -19,7 +19,10 @@ const NAV_GROUPS: Array<{
 }> = [
   {
     label: '应用能力',
-    items: [{ key: 'alerts', label: '告警 RCA', icon: BellRing }],
+    items: [
+      { key: 'alerts', label: '告警 RCA', icon: BellRing },
+      { key: 'architecture-watches', label: '架构值守', icon: Network },
+    ],
   },
   {
     label: 'Agent配置',

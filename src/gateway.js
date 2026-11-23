@@ -30,6 +30,18 @@ async function handleMessage(botConfigId, client, frame) {
   }
   const prompt = normalizeGatewayCommand(rawPrompt, message.chattype, pair.bot.name);
 
+  const watchBind = prompt.trim().match(/^\/bind-watch\s+([a-z0-9_-]+)$/i);
+  if (watchBind) {
+    if (message.chattype !== "group" || !message.chatid) {
+      await replyOnce(client, frame, "请在需要接收值守事件的企业微信群内发送绑定指令。"); return;
+    }
+    try {
+      const watch = require("./architecture-duty-store").bindChat(watchBind[1], botConfigId, message.chatid);
+      await replyOnce(client, frame, `✅ 当前群已绑定为「${watch.archName}」的架构值守推送群。`);
+    } catch (error) { await replyOnce(client, frame, `绑定失败：${safeError(error)}`); }
+    return;
+  }
+
   const bindMatch = prompt.trim().match(/^\/bind-alert\s+([a-z0-9_-]+)$/i);
   if (bindMatch) {
     if (message.chattype !== "group" || !message.chatid) {

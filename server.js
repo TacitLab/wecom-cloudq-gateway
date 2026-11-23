@@ -8,6 +8,15 @@ const { URL } = require("node:url");
 const alertPoller = require("./src/alert-poller");
 const { listAlarmPolicies } = require("./src/alert-config");
 const alertStore = require("./src/alert-store");
+const architectureWatch = require("./src/architecture-watch");
+const architectureDetail = require("./src/architecture-detail");
+const architectureCapacity = require("./src/architecture-capacity");
+const architectureNode = require("./src/architecture-node");
+const architectureDutyStore = require("./src/architecture-duty-store");
+const architectureDuty = require("./src/architecture-duty");
+const architectureDutyWorker = require("./src/architecture-duty-worker");
+const apm = require("./src/apm");
+const { credentialRedactor } = require("./src/alert-credentials");
 const alertWorker = require("./src/alert-worker");
 const { promptReference } = require("./src/alert-prompt");
 const { BotManager } = require("./src/bot-manager");
@@ -57,6 +66,11 @@ function serveAdmin(response, pathname) {
     file = path.join(WEB_DIST, "index.html");
   }
   const headers = { "Content-Security-Policy": ADMIN_CSP };
+  if (rel === "/diagram-frame.html" && file === path.join(WEB_DIST, "diagram-frame.html")) {
+    // Isolate the cloud SVG and its styles from the authenticated admin page.
+    headers["Content-Security-Policy"] = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts";
+    headers["X-Frame-Options"] = "SAMEORIGIN";
+  }
   if (hashedAsset) headers["Cache-Control"] = "max-age=31536000, immutable";
   send(response, 200, fs.readFileSync(file), WEB_MIME[path.extname(file)] || "application/octet-stream", headers);
 }
@@ -108,6 +122,7 @@ function publicState(botManager) {
     agents: registry.listAgents(),
     wmaCredentials: registry.listWmaCredentials(),
     tencentCredentials: registry.listTencentCredentials(),
+    architectureWatches: architectureWatch.listWatches(),
     connections: botManager.statuses(),
     alertIntegrations: alertStore.listIntegrations(),
     alertJobs: alertStore.listJobs(50),
@@ -201,9 +216,111 @@ function createServer(options = {}) {
         }
       }
 
-      const tencentMatch = url.pathname.match(/^\/api\/admin\/tencent-credentials(?:\/([^/]+))?(?:\/(test|alarm-policies))?$/);
+      if (url.pathname === "/api/admin/architecture-watches") {
+        if (request.method === "GET") {
+          send(response, 200, { items: architectureWatch.listWatches() });
+          return;
+        }
+        if (request.method === "POST") {
+          send(response, 201, await architectureWatch.addWatch(await readJson(request, config.bodyLimitBytes)));
+          return;
+        }
+      }
+      const watchMatch = url.pathname.match(/^\/api\/admin\/architecture-watches\/([^/]+)(?:\/(settings|enabled|history|check|unbind|test-push|diagram|capacity|apm-instances|apm-applications|apm-policies|nodes\/[^/]+|events\/[^/]+\/retry))?$/);
+      if (watchMatch) {
+        const [, id, action] = watchMatch;
+        if ((request.method === "GET" && ["apm-instances", "apm-applications"].includes(action)) || (request.method === "POST" && action === "apm-policies")) {
+          const credential = architectureWatch.credentialFor(architectureWatch.getWatch(id).credentialId);
+          try {
+            if (action === "apm-instances") send(response, 200, { items: await apm.listInstances(credential) });
+            else if (action === "apm-applications") send(response, 200, { items: await apm.listApplications(credential, url.searchParams.get("region"), url.searchParams.get("instanceId")) });
+            else {
+              const input = await readJson(request, config.bodyLimitBytes);
+              send(response, 200, await apm.discoverPolicies(credential, input.applications));
+            }
+          } catch (error) { throw new Error(`Invalid APM 查询：${credentialRedactor(credential)(error.message)}`); }
+          return;
+        }
+        if (request.method === "GET" && action?.startsWith("nodes/")) {
+          send(response, 200, await architectureNode.getNode(id, decodeURIComponent(action.slice(6)))); return;
+        }
+        if (request.method === "PUT" && action === "enabled") {
+          const input = await readJson(request, config.bodyLimitBytes);
+          send(response, 200, architectureDutyStore.setEnabled(id, input.enabled, input.enabled === true ? await architectureDetail.getDetail(id) : null)); return;
+        }
+        if (request.method === "GET" && action === "diagram") {
+          send(response, 200, await architectureDetail.getOriginalDiagram(id, url.searchParams.get("view") ?? "3d")); return;
+        }
+        if (request.method === "GET" && action === "capacity") {
+          send(response, 200, await architectureCapacity.getCapacity(id)); return;
+        }
+        if (request.method === "GET" && !action) {
+          send(response, 200, { ...await architectureDetail.getDetail(id), settings: architectureDutyStore.getSettings(id) });
+          return;
+        }
+        if (request.method === "GET" && action === "settings") {
+          send(response, 200, architectureDutyStore.getSettings(id)); return;
+        }
+        if (request.method === "PUT" && action === "settings") {
+          const input = await readJson(request, config.bodyLimitBytes);
+          // Resolve new selections with the watch's credential, never trust
+          // browser-supplied application names, regions or business systems.
+          if (input.apmApplications !== undefined) {
+            const selected = apm.normalizeApplications(input.apmApplications);
+            const existing = new Map(architectureDutyStore.getSettings(id).apmApplications.map(app => [apm.applicationKey(app), app]));
+            const credential = architectureWatch.credentialFor(architectureWatch.getWatch(id).credentialId), groups = new Map();
+            try {
+              for (const app of selected) {
+                if (existing.has(apm.applicationKey(app))) continue;
+                const key = JSON.stringify([app.region, app.instanceId]);
+                if (!groups.has(key)) groups.set(key, await apm.listApplications(credential, app.region, app.instanceId));
+                const found = groups.get(key).find(item => apm.applicationKey(item) === apm.applicationKey(app));
+                if (!found) throw new Error(`所选 APM 应用已不可用：${app.serviceName}，请刷新应用列表`);
+                existing.set(apm.applicationKey(found), found);
+              }
+              input.apmApplications = selected.map(app => existing.get(apm.applicationKey(app)));
+            } catch (error) { throw new Error(`Invalid ${credentialRedactor(credential)(error.message)}`); }
+          }
+          const detail = await architectureDetail.getDetail(id);
+          // Only the dedicated overview switch controls enabled. Read after the
+          // cloud lookup so concurrent form saves cannot restore a stale state.
+          send(response, 200, architectureDutyStore.saveSettings(id, { ...input, enabled: architectureDutyStore.getSettings(id).enabled }, detail)); return;
+        }
+        if (request.method === "GET" && action === "history") {
+          send(response, 200, architectureDutyStore.history(id, url.searchParams.get("page") || 1)); return;
+        }
+        if (request.method === "POST" && action === "check") {
+          send(response, 200, await architectureDuty.checkNow(id)); return;
+        }
+        if (request.method === "POST" && action === "unbind") {
+          send(response, 200, architectureDutyStore.unbind(id)); return;
+        }
+        if (request.method === "POST" && action === "test-push") {
+          const settings = architectureDutyStore.getSettings(id), watch = architectureWatch.getWatch(id);
+          if (!settings.botConfigId || !settings.targetChatId) throw new Error("Target WeCom group is not bound");
+          await notifier.sendMessage(settings.botConfigId, settings.targetChatId, `✅ 架构值守测试消息\n架构图：${watch.archName}\n架构图 ID：${watch.archId}\n后续事件及 RCA 结果将推送到当前群。\n[查看架构图](https://console.cloud.tencent.com/advisor?archId=${encodeURIComponent(watch.archId)})`);
+          send(response, 200, { ok: true }); return;
+        }
+        if (request.method === "POST" && action?.startsWith("events/")) {
+          architectureDutyStore.retryEvent(id, action.split("/")[1]); architectureDutyWorker.schedule();
+          send(response, 200, { ok: true }); return;
+        }
+        if (request.method === "DELETE" && !action) {
+          architectureWatch.removeWatch(id); send(response, 200, { ok: true }); return;
+        }
+      }
+
+      const tencentMatch = url.pathname.match(/^\/api\/admin\/tencent-credentials(?:\/([^/]+))?(?:\/(test|alarm-policies|architectures))?$/);
       if (tencentMatch) {
         const [, id, action] = tencentMatch;
+        if (request.method === "GET" && action === "architectures" && id) {
+          send(response, 200, await architectureWatch.listArchitectures(id, {
+            pageNumber: url.searchParams.get("pageNumber") ?? 1,
+            pageSize: url.searchParams.get("pageSize") ?? 20,
+            search: url.searchParams.get("search") ?? "",
+          }));
+          return;
+        }
         if (request.method === "GET" && action === "alarm-policies" && id) {
           const credential = registry.getTencentCredential(id, { secrets: true });
           if (!credential) throw new Error("Tencent Cloud credential not found");
@@ -405,10 +522,12 @@ async function main() {
   store.cleanup();
   alertStore.cleanupJobs();
   const interruptedAlerts = alertStore.markInterruptedJobs();
+  architectureDutyWorker.recoverInterrupted();
   if (interruptedAlerts) console.warn("interrupted_alert_jobs_recovered", { count: interruptedAlerts });
   const { botManager, server } = createServer({ config });
   botManager.sync();
   alertPoller.start();
+  architectureDuty.start();
   alertWorker.schedule();
   server.listen(config.port, config.host, () => {
     console.log(`gateway_listening http://${config.host}:${config.port}/admin`);
@@ -417,15 +536,19 @@ async function main() {
   const cleanupTimer = setInterval(() => {
     store.cleanup();
     alertStore.cleanupJobs();
+    const cutoff = Date.now() - 30 * 86400000;
+    db().prepare("DELETE FROM architecture_watch_checks WHERE created_at<?").run(cutoff);
+    db().prepare("DELETE FROM architecture_watch_events WHERE completed_at IS NOT NULL AND created_at<?").run(cutoff);
   }, 60 * 60 * 1000);
   const shutdown = async (signal) => {
     console.log("gateway_stopping", { signal });
     clearInterval(cleanupTimer);
     alertPoller.stop();
+    architectureDuty.stop();
     botManager.stop();
     server.close();
     await Promise.race([
-      Promise.allSettled([scheduler.drain(), alertWorker.drain()]),
+      Promise.allSettled([scheduler.drain(), alertWorker.drain(), architectureDuty.drain(), architectureDutyWorker.drain()]),
       new Promise((resolve) => setTimeout(resolve, 20000)),
     ]);
     closeDatabase();

@@ -7,7 +7,7 @@ const { adapterFor } = require("./worker");
 const { finalizeAgentText } = require("./agent");
 const { safeError } = require("./utils");
 const { defaultPrompt, renderPrompt } = require("./alert-prompt");
-const { credentialRedactor, INJECTED_CREDENTIAL_NOTICE, withDiagnosticCredential } = require("./alert-credentials");
+const { credentialRedactor } = require("./alert-credentials");
 
 let active;
 
@@ -29,24 +29,23 @@ function splitUtf8(value, maxBytes = 3800) {
 async function analyze(job, integration) {
   const pair = registry.pairForBot(integration.botConfigId);
   if (!pair?.bot.enabled) throw new Error("Configured Bot is disabled or unavailable");
-  const credential = integration.diagnosticCredentialId
-    ? registry.getTencentCredential(integration.diagnosticCredentialId, { secrets: true }) : undefined;
-  if (integration.diagnosticCredentialId && !credential) throw new Error("CloudQ diagnostic credential not found");
-  const redact = credentialRedactor(credential);
-  const adapter = adapterFor(pair.agent, { sensitive: Boolean(credential) });
+  const runtimeCredential = pair.agent.runtimeCredentialId
+    ? registry.getTencentCredential(pair.agent.runtimeCredentialId, { secrets: true }) : undefined;
+  const redact = credentialRedactor(runtimeCredential, pair.agent, integration);
+  const adapter = adapterFor(pair.agent);
   const prompt = renderPrompt(integration, job.payload);
   try {
     const conversation = await adapter.createConversation(`alert:${integration.id}:${job.eventKey}`);
     let answer = "";
     const response = await adapter.sendMessage(conversation,
-      withDiagnosticCredential(prompt, credential, integration.region), (delta) => { answer += delta; },
+      prompt, (delta) => { answer += delta; },
       { showThinking: pair.bot.showThinking, htmlAttachments: true });
     const warnings = [...(response?.warnings || [])];
     const attachments = response?.stopReason === "end_turn" ? response.attachments || [] : [];
     if (response?.attachments?.length && response.stopReason !== "end_turn") warnings.push("Agent 未正常完成，HTML 附件未发送。请重新诊断。");
     const attachmentError = redact(warnings.join("\n"));
     const finalAnswer = redact(finalizeAgentText([answer || "诊断任务已完成，但 Agent 未返回文本结果。", ...warnings].join("\n\n")));
-    const recordedPrompt = redact(credential ? `${prompt}\n\n${INJECTED_CREDENTIAL_NOTICE}` : prompt);
+    const recordedPrompt = redact(prompt);
     alertStore.saveJobAttachments(job.id, attachments.map((item) => ({
       filename: redact(item.filename), buffer: Buffer.from(redact(item.buffer.toString("utf8")), "utf8"),
     })));

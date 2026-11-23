@@ -39,7 +39,7 @@ function normalizeGatewayCommand(content, chatType = "single", botName = "") {
     .trim();
   if (String(chatType).toLowerCase() !== "group" || !text.startsWith("@")) return text;
 
-  const command = text.match(/\/(?:new|stop|bind-alert\s+[a-z0-9_-]+)\s*$/i);
+  const command = text.match(/\/(?:new|stop|bind-(?:alert|watch)\s+[a-z0-9_-]+)\s*$/i);
   if (!command || command.index === 0) return text;
 
   const mentionPrefix = text.slice(0, command.index).trim();
@@ -50,7 +50,7 @@ function normalizeGatewayCommand(content, chatType = "single", botName = "") {
   // label. Binding must not depend on that label: the one-time code is checked
   // against the receiving Bot in bindChat. Keep stricter parsing for /new and
   // /stop so natural-language requests cannot reset or stop a conversation.
-  const isBindWithDisplayMention = /^\/bind-alert\s/i.test(command[0])
+  const isBindWithDisplayMention = /^\/bind-(?:alert|watch)\s/i.test(command[0])
     && /^@[^@\r\n]+$/.test(mentionPrefix);
   return isSingleMention || isConfiguredMention || isBindWithDisplayMention ? command[0].trim() : text;
 }

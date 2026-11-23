@@ -24,16 +24,20 @@ function fixture({ showThinking = false, credential = false } = {}) {
   const agent = registry.saveAgent({ credentialConfigId: registry.saveWmaCredential({ name: "WMA test", secretId: "AKID_test", secretKey: "test-secret" }).id, name: "CloudQ", agentId: `agent_HTML_${index}`, });
   const bot = registry.saveBot({ name: "Bot", botId: `alert-html-${index}`, secret: "bot-secret", agentConfigId: agent.id, showThinking });
   const polling = registry.saveTencentCredential({ name: "Poll", secretId: "AKID_POLL", secretKey: "poll-key" });
-  const diagnostic = credential ? registry.saveTencentCredential({ name: "Diag", secretId: "AKID_DIAG_HTML", secretKey: "diag-html-secret-example" }) : undefined;
+  const runtimeCredential = credential ? registry.saveTencentCredential({ name: "Diag", secretId: "AKID_DIAG_HTML", secretKey: "diag-html-secret-example" }) : undefined;
+  if (runtimeCredential) registry.saveAgent(agent, agent.id, { runtimeVersion: {
+    runtimeCredentialId: runtimeCredential.id, runtimeRegion: "ap-guangzhou", wmaVersionId: "embedded-html", wmaVersionName: "凭证注入版",
+    runtimeCredentialUpdatedAt: runtimeCredential.updatedAt,
+  } });
   const integration = alertStore.saveIntegration({ name: "APM 诊断 Demo", botConfigId: bot.id, credentialId: polling.id,
-    diagnosticCredentialId: diagnostic?.id, region: "ap-guangzhou", promptTemplate: "请先输出简报，再输出完整的 HTML 报告：{{alarm_content}}" });
+    region: "ap-guangzhou", promptTemplate: "请先输出简报，再输出完整的 HTML 报告：{{alarm_content}}" });
   const chatId = `group-${index}`;
   alertStore.bindChat(integration.bindCode, bot.id, chatId);
   const { id: jobId } = alertStore.enqueueHistory(integration.id, { AlarmId: `alarm-${index}`, Content: "Redis 慢查询" });
-  const adapter = adapterFor(registry.getAgent(agent.id, { secrets: true }), { sensitive: credential });
+  const adapter = adapterFor(registry.getAgent(agent.id, { secrets: true }));
   adapter.createConversation = async () => ({ sessionId: "s" });
   return { agent, bot, integration, chatId, jobId, adapter,
-    diagnostic: diagnostic ? registry.getTencentCredential(diagnostic.id, { secrets: true }) : undefined };
+    runtimeCredential: runtimeCredential ? registry.getTencentCredential(runtimeCredential.id, { secrets: true }) : undefined };
 }
 
 function installSession(adapter, prompt) {
@@ -134,10 +138,10 @@ test("missing HTML fails explicitly and retry regenerates rather than resending 
   } finally { notifier.unregister(f.bot.id); }
 });
 
-test("diagnostic credentials are redacted from stored and sent HTML attachments", async () => {
+test("WMA version runtime credentials are redacted from stored and sent HTML attachments", async () => {
   const f = fixture({ credential: true });
   installSession(f.adapter, async (_input, options) => {
-    options.onChunk(textChunk(`简报\n\`\`\`wecom-html filename="report.html"\n<html>${f.diagnostic.secretId} ${f.diagnostic.secretKey}</html>\n\`\`\`\n`));
+    options.onChunk(textChunk(`简报\n\`\`\`wecom-html filename="report.html"\n<html>${f.runtimeCredential.secretId} ${f.runtimeCredential.secretKey}</html>\n\`\`\`\n`));
     return { stopReason: "end_turn" };
   });
   let sentHtml;
@@ -147,7 +151,7 @@ test("diagnostic credentials are redacted from stored and sent HTML attachments"
     await alertWorker.processPending();
     assert.match(sentHtml, /REDACTED/);
     const stored = Buffer.from(db().prepare("SELECT content FROM alert_job_attachments WHERE job_id=?").get(f.jobId).content).toString();
-    for (const value of [f.diagnostic.secretId, f.diagnostic.secretKey]) {
+    for (const value of [f.runtimeCredential.secretId, f.runtimeCredential.secretKey]) {
       assert.equal(sentHtml.includes(value), false);
       assert.equal(stored.includes(value), false);
     }

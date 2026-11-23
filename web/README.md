@@ -1,6 +1,6 @@
 # CloudQ 网关管理台
 
-企业微信 CloudQ 运维网关的 React 管理前端，提供首次配置向导、WMA 凭证与 Agent 管理、Bot 配对、腾讯云凭证及告警 RCA 配置。部署与业务流程见[根目录 README](../README.md)。
+企业微信 CloudQ 运维网关的 React 管理前端，提供首次配置向导、WMA 凭证与 Agent 管理、Bot 配对、腾讯云凭证、告警 RCA 及架构值守配置。部署与业务流程见[根目录 README](../README.md)。
 
 技术栈：React 19、TypeScript、Vite、Tailwind CSS 4、shadcn/ui 与 Base UI。
 

@@ -101,13 +101,19 @@ cp .env.example .env
 
 网关会引导 Agent 输出完整源码，转成 UTF-8 `.html` 附件。每轮最多 **5 个文件 / 合计 5 MiB**，并受模型输出长度限制。[查看附件协议与限制 →](docs/guide.md#html-reports)
 
+### 添加需要值守的架构图
+
+打开「应用能力 → 架构值守」，添加已有腾讯云架构图，点击列表进入详情，查看紧凑的资源/地域分布概览和腾讯云原始 2D/3D 架构图，点击节点在右侧查看对应资源、监测及告警。在「云资源监测」表格中点击资源范围可选择具体资源。按产品开启告警推送及智能顾问容量监测，设置统一值守时间和推送 Bot，在目标群发送绑定指令后开始值守。高负载事件先通知，再按设置推送 RCA；持续高负载按递增间隔提醒，最多每周一次，历史中可查看检查、事件和分析结果。[配置与接口说明 →](docs/architecture-watch.md)
+
+值守设置还支持关联 APM 应用：选择业务系统和应用后自动发现相关告警策略，包含共享及停用策略；保存后按实际应用归属扫描告警，复用架构的通知、恢复和 RCA 流程。策略变更会在后续检查中自动同步，范围不确定或查询不完整会明确提示。
+
 ## 继续探索
 
 | 我想…… | 从这里开始 |
 | --- | --- |
 | 调整群聊隔离、会话与思考过程显示 | [Bot 与对话设置](docs/guide.md#bot-setup) |
 | 固定 WMA 版本，或创建云凭证注入版 | [版本与运行时凭证](docs/guide.md#wma-versions) |
-| 设置来源、策略、Prompt 与诊断凭证 | [告警 RCA](docs/guide.md#alert-rca) |
+| 设置来源、策略、Prompt 与执行 Bot | [告警 RCA](docs/guide.md#alert-rca) |
 | 调整环境变量、端口或出站网络 | [环境与网络](docs/guide.md#env-network) |
 | 备份数据库、从 CloudAgent 旧版升级 | [数据与升级](docs/guide.md#operations) |
 | 本地开发、运行测试或构建管理台 | [开发指南](docs/guide.md#development) · [前端说明](web/README.md) |
@@ -117,7 +123,7 @@ cp .env.example .env
 <summary><strong>运行边界与数据说明</strong></summary>
 
 - Bot Secret 和 AK/SK 明文保存在本机 SQLite 中，管理 API 不回显密钥；请保护主机、数据卷与备份。
-- 凭证注入版会将 AK/SK 写入 WMA 云端版本；CloudQ 诊断凭证会发送到所选 Agent 的会话。具体行为见[凭证说明](docs/guide.md#wma-versions)。
+- 凭证注入版会将 AK/SK 写入 WMA 云端版本；RCA 继承绑定 Agent 的版本环境，不再通过 Prompt 额外注入凭证。具体行为见[凭证说明](docs/guide.md#wma-versions)。
 - 文件与图片上传、Agent 交互式授权或追问尚未接入。HTML 附件只交付完整文档和正常结束任务的结果。
 - 告警历史轮询不保证覆盖所有长期告警的恢复状态。诊断、模型输出与云资源权限由所选 WMA Agent 及技能决定。
 - 当前 `main` 为 WMA 版本，原 CloudAgent 主线保存在 `CloudAgent-version`。Compose 项目名和数据卷保留历史命名，升级前请备份。

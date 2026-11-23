@@ -240,11 +240,16 @@ function saveTencentCredential(input, id) {
 }
 
 function deleteTencentCredential(id) {
+  if (db().prepare("SELECT 1 FROM architecture_watches WHERE credential_id=? LIMIT 1").get(id)) {
+    throw new Error("Tencent Cloud credential is still used by architecture watches，请先移除引用该凭证的架构图");
+  }
   if (db().prepare("SELECT COUNT(*) AS count FROM wma_agents WHERE runtime_credential_id=?").get(id).count) {
     throw new Error("Tencent Cloud credential is still used by one or more WMA Agent versions");
   }
-  const refs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE credential_id = ? OR diagnostic_credential_id = ?").get(id, id).count;
+  const refs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE credential_id = ?").get(id).count;
   if (refs) throw new Error("Tencent Cloud credential is still used by one or more alert integrations");
+  db().prepare("UPDATE alert_integrations SET diagnostic_credential_id=NULL WHERE diagnostic_credential_id=?").run(id);
+  db().prepare("UPDATE architecture_watch_settings SET diagnostic_credential_id=NULL WHERE diagnostic_credential_id=?").run(id);
   if (!db().prepare("DELETE FROM tencent_credentials WHERE id = ?").run(id).changes) {
     throw new Error("Tencent Cloud credential not found");
   }
@@ -288,6 +293,9 @@ function saveBot(input, id) {
 }
 
 function deleteBot(id) {
+  if (db().prepare("SELECT 1 FROM architecture_watch_settings WHERE bot_config_id=? LIMIT 1").get(id)) {
+    throw new Error("Bot is still used by architecture duty settings，请先在架构详情中解除 Bot 配置");
+  }
   const alertRefs = db().prepare("SELECT COUNT(*) AS count FROM alert_integrations WHERE bot_config_id=?").get(id).count;
   if (alertRefs) throw new Error("WeCom Bot is still used by one or more alert integrations");
   if (!db().prepare("DELETE FROM wecom_bots WHERE id = ?").run(id).changes) throw new Error("WeCom Bot configuration not found");

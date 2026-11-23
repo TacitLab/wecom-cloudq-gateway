@@ -29,7 +29,6 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
   const [name, setName] = useState('')
   const [botConfigId, setBotConfigId] = useState('')
   const [credentialId, setCredentialId] = useState('')
-  const [diagnosticCredentialId, setDiagnosticCredentialId] = useState('')
   const [namespace, setNamespace] = useState('')
   const [pollIntervalSeconds, setPollIntervalSeconds] = useState('60')
   const [policyIds, setPolicyIds] = useState<string[]>([])
@@ -63,7 +62,6 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
     setName(record?.name ?? '')
     setBotConfigId(record?.botConfigId ?? state.bots[0]?.id ?? '')
     setCredentialId(record?.credentialId ?? state.tencentCredentials[0]?.id ?? '')
-    setDiagnosticCredentialId(record?.diagnosticCredentialId ?? '')
     setNamespace(record?.namespace ?? '')
     setPollIntervalSeconds(String(record?.pollIntervalSeconds ?? 60))
     setPolicyIds(record?.policyIds ?? [])
@@ -121,9 +119,6 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
   const settingsValid = Boolean(name.trim() && botConfigId && timingSettingsValid)
   const canContinue = step === 0 ? Boolean(credentialId && region) : step === 1
     ? policyScope === 'all' || policyIds.length > 0 : settingsValid
-  const diagnosticCredentialName = diagnosticCredentialId
-    ? state?.tencentCredentials.find((credential) => credential.id === diagnosticCredentialId)?.name ?? record?.diagnosticCredentialName ?? '所选凭证不可用'
-    : '不嵌入，使用 Agent 已有环境'
   const customPromptActive = Boolean(promptTemplate.trim())
 
   function resetPolicies() {
@@ -153,7 +148,7 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
       await toastTask(api(`/api/admin/alerts${id ? `/${id}` : ''}`, {
         method: id ? 'PUT' : 'POST',
         body: JSON.stringify({
-          id, name, botConfigId, credentialId, diagnosticCredentialId: diagnosticCredentialId || null, region, monitorType, policyScope,
+          id, name, botConfigId, credentialId, region, monitorType, policyScope,
           namespace: policyScope === 'all' ? namespace : '',
           policyIds: policyScope === 'selected' ? policyIds : [],
           pollIntervalSeconds: Number(pollIntervalSeconds), enabled,
@@ -312,25 +307,7 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
                   </div>
                 </div>
                 <div className="grid gap-2"><Label htmlFor="alert-interval">轮询间隔（秒）</Label><Input id="alert-interval" type="number" required min={30} value={pollIntervalSeconds} onChange={(e) => setPollIntervalSeconds(e.target.value)} /><p className="text-xs text-muted-foreground">默认每 60 秒检查一次，只对未处理的新告警执行 RCA。</p></div>
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-diagnostic-credential">CloudQ 诊断凭证（可选）</Label>
-                  <Select value={diagnosticCredentialId || '__none__'} onValueChange={(value) => setDiagnosticCredentialId(value === '__none__' ? '' : value ?? '')}>
-                    <SelectTrigger id="alert-diagnostic-credential" aria-describedby="alert-diagnostic-credential-hint">
-                      <SelectValue>{(value) => value === '__none__' ? '不嵌入凭证，使用 Agent 已有环境'
-                        : state?.tencentCredentials.find((credential) => credential.id === value)?.name ?? record?.diagnosticCredentialName ?? '请选择凭证'}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">不嵌入凭证，使用 Agent 已有环境</SelectItem>
-                      {(state?.tencentCredentials ?? []).map((credential) => <SelectItem key={credential.id} value={credential.id}>{credential.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <p id="alert-diagnostic-credential-hint" className="text-xs leading-relaxed text-muted-foreground">
-                    可与拉取告警的凭证不同。仅在实际执行时追加凭证，供 CloudQ 设置环境变量；Prompt 编辑框和本地诊断记录不包含追加的密钥正文。
-                  </p>
-                  {diagnosticCredentialId && <p className="text-xs leading-relaxed text-muted-foreground">
-                    所选凭证将随诊断请求发送给 Agent，可能保留在云端会话中。每次诊断读取凭证的最新值。
-                  </p>}
-                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">RCA 使用所选 Bot 绑定 Agent 的使用版本和运行环境。云资源凭证请在 WMA Agent 的凭证注入版中配置。</p>
                 <label className="flex items-center gap-2 text-sm"><Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />{keepsBinding ? '启用自动轮询' : '绑定目标群后启用自动轮询'}</label>
                 <p className="text-xs leading-relaxed text-muted-foreground">{keepsBinding
                   ? `推送到 ${record?.targetChatName || '已绑定企业微信群'}。`
@@ -393,10 +370,9 @@ export function AlertDialogForm({ open, record, state, onOpenChange, onSaved }: 
                     <dt className="text-muted-foreground">轮询间隔</dt><dd>每 {pollIntervalSeconds} 秒</dd>
                     <dt className="text-muted-foreground">运行状态</dt><dd>{enabled ? keepsBinding ? '保存后启用自动轮询' : '绑定目标群后启用自动轮询' : '已暂停自动轮询'}</dd>
                     <dt className="text-muted-foreground">推送目标</dt><dd>{keepsBinding ? record?.targetChatName || '已绑定企业微信群' : '保存后绑定企业微信群'}</dd>
-                    <dt className="text-muted-foreground">CloudQ 凭证</dt><dd>{diagnosticCredentialName}</dd>
+                    <dt className="text-muted-foreground">WMA 版本</dt><dd>{state?.agents.find(agent => agent.id === selectedBot?.agentConfigId)?.wmaVersionName || '跟随 WMA 路由'}</dd>
                   </dl>
                   {!keepsBinding && <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">{record?.targetChatId ? '更换 Bot 后需重新绑定目标群。' : ''}保存后，将所选 Bot 加入目标群并发送页面上的 /bind-alert 指令完成绑定。</p>}
-                  {diagnosticCredentialId && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">诊断凭证仅在执行时追加到 Agent 请求中，预览不显示密钥。凭证可能保留在云端会话中。</p>}
                 </section>
                 <section aria-label="高级设置预览" className="rounded-lg border p-4 text-sm">
                   <div className="mb-3 flex items-center justify-between gap-2">

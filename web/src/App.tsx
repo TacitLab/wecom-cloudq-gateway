@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AgentsView } from '@/components/views/agents-view'
 import { AlertsView } from '@/components/views/alerts-view'
+import { ArchitectureWatchesView } from '@/components/views/architecture-watches-view'
+import { ArchitectureDetailView } from '@/components/views/architecture-detail-view'
 import { WmaCredentialsView } from '@/components/views/wma-credentials-view'
 import { TencentCredentialsView } from '@/components/views/tencent-credentials-view'
 import { PairingsView } from '@/components/views/pairings-view'
@@ -17,13 +19,14 @@ import { BotDialog } from '@/components/dialogs/bot-dialog'
 import { WmaCredentialDialog } from '@/components/dialogs/wma-credential-dialog'
 import { TencentCredentialDialog } from '@/components/dialogs/tencent-credential-dialog'
 import { useAdminState } from '@/lib/use-admin-state'
-import { isEmptyState, parseView, type ViewKey } from '@/lib/views'
+import { isEmptyState, parseView, parseWatchId, type ViewKey } from '@/lib/views'
 import { OnboardingPage } from '@/components/views/onboarding-view'
 
 type DialogKind = 'agent' | 'wma-credential' | 'tencent' | 'bot' | 'alert'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>(() => parseView(location.hash) ?? 'pairings')
+  const [watchId, setWatchId] = useState<string | null>(() => parseWatchId(location.hash))
   const [dialog, setDialog] = useState<{ kind: DialogKind; id?: string } | null>(null)
   const { state, error, reload } = useAdminState()
   // 首次加载到空配置时进入独立向导页；一旦进入则保持到全部完成
@@ -31,7 +34,7 @@ export default function App() {
   const wizardDecided = useRef(false)
 
   useEffect(() => {
-    const onHash = () => setView(parseView(location.hash) ?? 'pairings')
+    const onHash = () => { setView(parseView(location.hash) ?? 'pairings'); setWatchId(parseWatchId(location.hash)) }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -54,6 +57,7 @@ export default function App() {
 
   function switchView(next: ViewKey) {
     setView(next)
+    setWatchId(null)
     if (location.hash !== `#${next}`) history.replaceState(null, '', `#${next}`)
   }
 
@@ -111,6 +115,13 @@ export default function App() {
                     onEdit={(id) => openDialog('alert', id)}
                     onSetupCredential={() => switchView('tencent-credentials')}
                   />
+                )}
+                {view === 'architecture-watches' && (
+                  watchId ? <ArchitectureDetailView key={watchId} id={watchId} state={state} reloadState={reload}
+                    onBack={() => { location.hash = 'architecture-watches' }} />
+                    : <ArchitectureWatchesView state={state} reload={reload}
+                      onOpen={id => { location.hash = `architecture-watches/${id}` }}
+                      onSetupCredential={() => switchView('tencent-credentials')} />
                 )}
               </>
             )}

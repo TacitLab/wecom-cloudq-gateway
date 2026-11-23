@@ -39,8 +39,6 @@ function integrationFromRow(row, { secrets = false } = {}) {
     agentConfigId: row.bound_agent_id || null,
     credentialId: row.credential_id || null,
     credentialName: row.credential_name || null,
-    diagnosticCredentialId: row.diagnostic_credential_id || null,
-    diagnosticCredentialName: row.diagnostic_credential_name || null,
     ...(secrets ? { secretId: row.secret_id, secretKey: row.secret_key } : {
       secretIdConfigured: Boolean(row.secret_id),
       secretKeyConfigured: Boolean(row.secret_key),
@@ -67,12 +65,11 @@ function integrationFromRow(row, { secrets = false } = {}) {
 }
 
 const INTEGRATION_SELECT = `
-  SELECT i.*, b.agent_config_id AS bound_agent_id, b.name AS bot_name, a.name AS agent_name, c.name AS credential_name, d.name AS diagnostic_credential_name
+  SELECT i.*, b.agent_config_id AS bound_agent_id, b.name AS bot_name, a.name AS agent_name, c.name AS credential_name
   FROM alert_integrations i
   JOIN wecom_bots b ON b.id=i.bot_config_id
   LEFT JOIN wma_agents a ON a.id=b.agent_config_id
   LEFT JOIN tencent_credentials c ON c.id=i.credential_id
-  LEFT JOIN tencent_credentials d ON d.id=i.diagnostic_credential_id
 `;
 
 function listIntegrations(options) {
@@ -96,12 +93,6 @@ function saveIntegration(input, id) {
     ? database.prepare("SELECT * FROM tencent_credentials WHERE id=?").get(credentialId)
     : undefined;
   if (!credential) throw new Error("Selected Tencent Cloud credential not found");
-  const diagnosticCredentialId = input.diagnosticCredentialId === undefined
-    ? existing?.diagnostic_credential_id || null
-    : text(input.diagnosticCredentialId, "CloudQ diagnostic credential", { required: false, max: 100 }) || null;
-  if (diagnosticCredentialId && !database.prepare("SELECT id FROM tencent_credentials WHERE id=?").get(diagnosticCredentialId)) {
-    throw new Error("Selected CloudQ diagnostic credential not found");
-  }
   const monitorType = validateMonitorType(input.monitorType || existing?.monitor_type || "MT_QCE");
   const policyIds = parsePolicyIds(input.policyIds);
   if (input.policyScope && !["selected", "all"].includes(input.policyScope)) throw new Error("Invalid policy scope");
@@ -113,7 +104,6 @@ function saveIntegration(input, id) {
     name: text(input.name, "Integration name", { max: 100 }),
     botConfigId,
     credentialId,
-    diagnosticCredentialId,
     secretId: credential.secret_id,
     secretKey: credential.secret_key,
     region: validateRegion(input.region),
@@ -151,7 +141,7 @@ function saveIntegration(input, id) {
     record.initialLookbackSeconds, record.overlapSeconds, record.promptTemplate, record.includeRecovery,
     record.enabled, record.bindCode, botChanged ? null : existing?.target_chat_id || null, botChanged ? null : existing?.target_chat_name || null,
     scopeChanged ? null : existing?.last_attempt_at || null, scopeChanged ? null : existing?.last_success_at || null, scopeChanged ? null : existing?.last_error || null,
-    existing?.created_at || now, now, record.diagnosticCredentialId,
+    existing?.created_at || now, now, null,
   );
   return getIntegration(record.id);
 }

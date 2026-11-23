@@ -39,6 +39,7 @@ class BotManager {
     client.on("authenticated", () => {
       setStatus("authenticated");
       require("./alert-worker").schedule();
+      require("./architecture-duty-worker").schedule();
     });
     client.on("disconnected", (reason) => setStatus("disconnected", reason));
     client.on("reconnecting", (attempt) => setStatus("reconnecting", `attempt ${attempt}`));
