@@ -6,6 +6,34 @@ import { expect, it } from 'vitest'
 const { JSDOM } = createRequire(import.meta.url)('jsdom')
 const script = readFileSync(new URL('../../public/diagram-frame.js', import.meta.url), 'utf8')
 
+it('fits a noninteractive thumbnail and extends the native grid without changing the architecture paths', () => {
+  const dom = new JSDOM('<div id="canvas" tabindex="0"></div>', { runScripts: 'outside-only', url: 'https://gateway.test/admin/diagram-frame.html' })
+  const w = dom.window, messages: unknown[] = []
+  const parent = { postMessage: (value: unknown) => messages.push(value) }
+  Object.defineProperty(w, 'parent', { value: parent })
+  w.eval(script)
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon class="entire-grid" points="0 0,100 100"/><g key="node"><path d="M1 2L3 4"/></g></svg>'
+  const render = { type: 'architecture-diagram-render', svg, nodes: [] }
+  w.dispatchEvent(new w.MessageEvent('message', { source: parent, data: render }))
+  const fullBounds = w.document.querySelector('svg').getAttribute('viewBox').split(' ').map(Number)
+  w.dispatchEvent(new w.MessageEvent('message', { source: parent, data: { ...render, preview: true } }))
+  const root = w.document.querySelector('svg'), canvas = w.document.getElementById('canvas')
+  const previewBounds = root.getAttribute('viewBox').split(' ').map(Number)
+  expect(previewBounds[2]).toBeLessThan(fullBounds[2])
+  expect(Number(root.querySelector('.entire-grid').getAttribute('points').split(' ')[0])).toBeLessThan(previewBounds[0])
+  expect(root.querySelector('path').getAttribute('d')).toBe('M1 2L3 4')
+  expect(canvas.hasAttribute('tabindex')).toBe(false)
+  const initial = root.getAttribute('viewBox')
+  const wheel = new w.WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true })
+  canvas.dispatchEvent(wheel)
+  canvas.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+  canvas.dispatchEvent(new w.MouseEvent('click', { bubbles: true }))
+  expect(wheel.defaultPrevented).toBe(false)
+  expect(root.getAttribute('viewBox')).toBe(initial)
+  expect(messages).toEqual([])
+  dom.window.close()
+})
+
 it('selects native SVG nodes, preserves their shapes and labels, and removes active cloud content', () => {
   const dom = new JSDOM('<div id="canvas"></div>', { runScripts: 'outside-only', url: 'https://gateway.test/admin/diagram-frame.html' })
   const w = dom.window

@@ -24,13 +24,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api).mockImplementation(async url => url.includes('/nodes/') ? { node: detail.nodes![0], fetchedAt: 0, alarmWindowHours: 24, warnings: [], errors: [], resources: [{ ...detail.resources[0], capacity: { riskLevel: 3, stale: false, updatedAt: 1, periodDays: 14, metrics: [{ name: 'CPU利用率', value: 93, riskLevel: 3 }] }, alarms: { complete: true, errors: [], warnings: [], items: [{ id: 'alarm-1', status: 'ALARM', title: '主机告警', content: 'CPU高负载', firstOccurTime: 1, lastOccurTime: 1 }] } }] } : url.includes('/history') ? { items: [], checks: [], totalCount: 0, pageNumber: 1, pageSize: 20 } : detail)
 })
-it('opens row details while the external architecture link stays independent', () => {
+it('opens architecture details while the external link stays independent', async () => {
   const onOpen = vi.fn()
   render(<ArchitectureWatchesView state={state} reload={vi.fn()} onOpen={onOpen} onSetupCredential={vi.fn()} />)
-  fireEvent.click(screen.getByRole('row', { name: /游戏服务/ }))
+  fireEvent.click(screen.getByRole('button', { name: '游戏服务' }))
   expect(onOpen).toHaveBeenCalledWith('watch-one')
   onOpen.mockClear()
-  const link = screen.getByRole('link', { name: '查看架构图' })
+  fireEvent.click(screen.getByRole('button', { name: '游戏服务的更多操作' }))
+  const link = await screen.findByRole('link', { name: '腾讯云架构图' })
   expect(link.getAttribute('href')).toBe('https://console.cloud.tencent.com/advisor?archId=arch-one')
   fireEvent.click(link)
   expect(onOpen).not.toHaveBeenCalled()

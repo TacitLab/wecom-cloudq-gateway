@@ -1,3 +1,7 @@
+import { matchesSearch } from '@/lib/list-filters'
+import { useState } from 'react'
+import { Plus, KeyRound } from 'lucide-react'
+import { EmptyState, ListToolbar, NoResults } from '@/components/list-toolbar'
 import { toast } from 'sonner'
 
 import { ConfirmButton } from '@/components/confirm-button'
@@ -25,6 +29,9 @@ export function WmaCredentialsView({
   reload: () => Promise<void>
   onEdit: (id?: string) => void
 }) {
+  const [query, setQuery] = useState('')
+  const items = (state?.wmaCredentials ?? []).filter(k => matchesSearch(query, k.name, k.region, k.secretIdMasked))
+
   async function testKey(id: string) {
     try {
       const r = await toastTask(
@@ -50,17 +57,16 @@ export function WmaCredentialsView({
 
   return (
     <PanelCard
-      title="WMA 凭证设置"
+      title="接入凭证"
       hint="录入腾讯云 AK/SK；新增 Agent 时选择凭证，自动拉取可访问的 WMA 智能体。"
-      action={<Button onClick={() => onEdit()}>新增凭证</Button>}
+      toolbar={state && state.wmaCredentials.length > 0 && <ListToolbar query={query} onQueryChange={setQuery} placeholder="搜索凭证名称、地域或 SecretId" count={items.length} total={state.wmaCredentials.length} />}
+      action={(!state || state.wmaCredentials.length > 0) && <Button disabled={!state} onClick={() => onEdit()}><Plus />新增凭证</Button>}
     >
       {!state ? (
         <TableSkeleton rows={3} />
       ) : state.wmaCredentials.length === 0 ? (
-        <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          尚未配置 WMA 凭证。
-        </div>
-      ) : (
+        <EmptyState icon={KeyRound} title="添加 WMA 接入凭证" description="保存具有 WMA 访问权限的腾讯云 AK/SK，后续创建 Agent 时即可直接选择。" action={<Button onClick={() => onEdit()}><Plus />新增凭证</Button>} />
+      ) : items.length === 0 ? <NoResults onReset={() => { setQuery('');  }} /> : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -72,7 +78,7 @@ export function WmaCredentialsView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {state.wmaCredentials.map((k) => (
+            {items.map((k) => (
               <TableRow key={k.id}>
                 <TableCell className="font-medium">{k.name}</TableCell>
                 <TableCell>
@@ -86,7 +92,7 @@ export function WmaCredentialsView({
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => testKey(k.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => testKey(k.id)}>
                       测试
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => onEdit(k.id)}>
@@ -94,7 +100,7 @@ export function WmaCredentialsView({
                     </Button>
                     <ConfirmButton
                       trigger={
-                        <Button variant="outline" size="sm" className="text-destructive">
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
                           删除
                         </Button>
                       }

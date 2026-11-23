@@ -66,8 +66,8 @@ export function ArchitectureDetailView({ id, state, reloadState, onBack }: {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
     finally { setToggling(false) }
   }
-  return <div className="grid min-w-0 gap-4">
-    <div className="flex flex-wrap items-start justify-between gap-3">
+  return <div className="grid min-w-0 gap-6">
+    <div className="detail-heading flex flex-wrap items-start justify-between gap-3">
       <div><Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />返回架构值守</Button>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">{detail?.watch.archName || '架构详情'}</h1>
         {detail && <p className="mt-1 text-xs text-muted-foreground"><span className="font-mono">{detail.watch.archId}</span> · {detail.watch.credentialName} · {detail.watch.versionName || '未标记版本'}</p>}
@@ -87,7 +87,7 @@ export function ArchitectureDetailView({ id, state, reloadState, onBack }: {
             <ArchitectureNodeInspector key={`${id}:${nodeId}`} id={id} detail={detail} nodeId={nodeId} />
           </div>
         </TabsContent>
-        <TabsContent value="settings"><PanelCard title="值守设置" hint="先配置统一的值守与推送方式，再分别选择云资源和 APM 应用范围。"><ArchitectureDutyForm detail={detail} state={state} onSaved={settingsSaved} /></PanelCard></TabsContent>
+        <TabsContent value="settings"><PanelCard className="panel-card-form" title="值守设置" hint="先配置统一的值守与推送方式，再分别选择云资源和 APM 应用范围。"><ArchitectureDutyForm detail={detail} state={state} onSaved={settingsSaved} /></PanelCard></TabsContent>
         <TabsContent value="history"><PanelCard title="值守历史"><ArchitectureDutyHistory id={id} /></PanelCard></TabsContent>
       </Tabs>
     </>}

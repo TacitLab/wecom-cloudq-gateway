@@ -1,3 +1,8 @@
+import { matchesSearch } from '@/lib/list-filters'
+import { RowActions } from '@/components/row-actions'
+import { useState } from 'react'
+import { Plus, Bot } from 'lucide-react'
+import { EmptyState, ListToolbar, NoResults } from '@/components/list-toolbar'
 import { ConfirmButton } from '@/components/confirm-button'
 import { PanelCard } from '@/components/panel-card'
 import { TableSkeleton } from '@/components/table-skeleton'
@@ -18,11 +23,16 @@ export function AgentsView({
   state,
   reload,
   onEdit,
+  onSetupCredential,
 }: {
   state: AdminState | null
   reload: () => Promise<void>
+  onSetupCredential: () => void
   onEdit: (id?: string) => void
 }) {
+  const [query, setQuery] = useState('')
+  const items = (state?.agents ?? []).filter(a => matchesSearch(query, a.name, a.agentId, a.credentialName, a.wmaVersionName))
+
   async function testAgent(id: string) {
     try {
       await toastTask(
@@ -59,17 +69,16 @@ export function AgentsView({
 
   return (
     <PanelCard
-      title="WMA Agent"
+      title="智能体列表"
       hint="同一 Agent 配置可以被多个企业微信 Bot 复用。"
-      action={<Button onClick={() => onEdit()}>新增 Agent</Button>}
+      toolbar={state && state.agents.length > 0 && <ListToolbar query={query} onQueryChange={setQuery} placeholder="搜索名称、Agent ID 或凭证" count={items.length} total={state.agents.length} />}
+      action={(!state || state.agents.length > 0) && <Button disabled={!state} onClick={() => onEdit()}><Plus />新增 Agent</Button>}
     >
       {!state ? (
         <TableSkeleton />
       ) : state.agents.length === 0 ? (
-        <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          尚未配置 Agent。可先在“WMA 凭证设置”添加凭证，新增 Agent 时自动拉取列表。
-        </div>
-      ) : (
+        <EmptyState icon={Bot} title="连接你的第一个智能体" description="选择 WMA 凭证后，可以获取可用的智能体，并为它设置运行版本。" action={<Button onClick={state.wmaCredentials.length ? () => onEdit() : onSetupCredential}><Plus />{state.wmaCredentials.length ? '新增 Agent' : '先添加 WMA 凭证'}</Button>} />
+      ) : items.length === 0 ? <NoResults onReset={() => { setQuery('');  }} /> : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -82,7 +91,7 @@ export function AgentsView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {state.agents.map((a) => (
+            {items.map((a) => (
               <TableRow key={a.id}>
                 <TableCell className="font-medium">{a.name}</TableCell>
                 <TableCell>
@@ -106,12 +115,13 @@ export function AgentsView({
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => testAgent(a.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => testAgent(a.id)}>
                       测试
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => onEdit(a.id)}>
                       编辑
                     </Button>
+                    <RowActions label={a.name}>
                     <ConfirmButton
                       trigger={
                         <Button variant="outline" size="sm">
@@ -125,13 +135,14 @@ export function AgentsView({
                     />
                     <ConfirmButton
                       trigger={
-                        <Button variant="outline" size="sm" className="text-destructive">
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
                           删除
                         </Button>
                       }
                       title="确认删除这个 Agent 配置？"
                       onConfirm={() => removeAgent(a.id)}
                     />
+                    </RowActions>
                   </div>
                 </TableCell>
               </TableRow>

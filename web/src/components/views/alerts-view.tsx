@@ -1,11 +1,14 @@
+import { matchesSearch } from '@/lib/list-filters'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { ConfirmButton } from '@/components/confirm-button'
 import { PanelCard } from '@/components/panel-card'
-import { JobStatusBadge } from '@/components/status-badges'
+import { JobStatusBadge, StatusBadge } from '@/components/status-badges'
 import { TableSkeleton } from '@/components/table-skeleton'
-import { Badge } from '@/components/ui/badge'
+import { BellRing, History, Plus } from 'lucide-react'
+import { EmptyState, FilterPills, ListToolbar, NoResults } from '@/components/list-toolbar'
+import { RowActions } from '@/components/row-actions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -39,6 +42,10 @@ export function AlertsView({
   onSetupCredential: () => void
 }) {
   const [manualCopyCommand, setManualCopyCommand] = useState('')
+  const [query, setQuery] = useState(''), [filter, setFilter] = useState('all')
+  const [jobQuery, setJobQuery] = useState(''), [jobFilter, setJobFilter] = useState('all')
+  const items = (state?.alertIntegrations ?? []).filter(a => matchesSearch(query, a.name, a.botName, a.agentName, a.credentialName, a.region) && (filter === 'all' || (filter === 'attention' ? a.lastError || !a.targetChatId : filter === 'enabled' ? a.enabled : !a.enabled)))
+  const jobs = (state?.alertJobs ?? []).filter(j => matchesSearch(jobQuery, j.integrationName, j.alarmId, j.payload?.AlarmObject, j.error) && (jobFilter === 'all' || (jobFilter === 'pending' ? !['delivered', 'failed'].includes(j.status) : j.status === jobFilter)))
 
   async function copyBindCode(bindCode: string) {
     const command = `/bind-alert ${bindCode}`
@@ -101,7 +108,7 @@ export function AlertsView({
     )
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <Dialog open={Boolean(manualCopyCommand)} onOpenChange={(open) => { if (!open) setManualCopyCommand('') }}>
         <DialogContent>
           <DialogHeader>
@@ -120,21 +127,18 @@ export function AlertsView({
         </DialogContent>
       </Dialog>
       <PanelCard
-        title="告警 RCA"
+        title="告警自动诊断"
         hint="定时轮询腾讯云告警历史，使用 Bot 当前绑定的 Agent 诊断，并主动推送到固定群聊。"
-        action={state && state.tencentCredentials.length === 0
+        toolbar={state && state.alertIntegrations.length > 0 && <ListToolbar query={query} onQueryChange={setQuery} placeholder="搜索配置、Bot 或凭证" count={items.length} total={state.alertIntegrations.length}><FilterPills value={filter} onChange={setFilter} options={[{value:'all',label:'全部'}, {value:'enabled',label:'已启用'}, {value:'paused',label:'已暂停'}, {value:'attention',label:'待处理'}]} /></ListToolbar>}
+        action={state && state.alertIntegrations.length === 0 ? null : state && state.tencentCredentials.length === 0
           ? <Button variant="outline" onClick={onSetupCredential}>先配置腾讯云凭证</Button>
-          : <Button onClick={() => onEdit()}>新增告警配置</Button>}
+          : <Button disabled={!state} onClick={() => onEdit()}><Plus />新增告警配置</Button>}
       >
         {!state ? (
           <TableSkeleton rows={3} />
         ) : state.alertIntegrations.length === 0 ? (
-          <div className="border-t py-8 text-center text-sm text-muted-foreground">
-            {state.tencentCredentials.length === 0
-              ? '告警 RCA 需要腾讯云凭证。请先录入凭证，再创建 RCA 配置。'
-              : '尚未配置告警轮询。选择告警来源、监控范围和执行 Bot，开始自动诊断。'}
-          </div>
-        ) : (
+          <EmptyState icon={BellRing} title="让告警自动找到解决思路" description={state.tencentCredentials.length === 0 ? '先配置腾讯云凭证，再选择告警来源和执行 Bot，连接自动诊断与群推送。' : '选择告警来源和执行 Bot，绑定团队群聊。新的告警将自动触发根因分析并推送结果。'} action={<Button onClick={state.tencentCredentials.length ? () => onEdit() : onSetupCredential}><Plus />{state.tencentCredentials.length ? '创建告警配置' : '先配置腾讯云凭证'}</Button>} />
+        ) : !items.length ? <NoResults onReset={() => { setQuery(''); setFilter('all') }} /> : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -146,7 +150,7 @@ export function AlertsView({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {state.alertIntegrations.map((a) => (
+              {items.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>
                     <div className="font-medium">{a.name}</div>
@@ -161,14 +165,14 @@ export function AlertsView({
                   <TableCell>
                     {a.targetChatId ? (
                       <>
-                        <Badge className="bg-green-600">已绑定</Badge>
+                        <StatusBadge tone="success">已绑定</StatusBadge>
                         <div className="mt-1 text-xs text-muted-foreground">{a.targetChatName}</div>
                       </>
                     ) : (
                       <>
-                        <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                        <StatusBadge tone="warning">
                           等待绑定
-                        </Badge>
+                        </StatusBadge>
                         <div>
                           <code className="mt-1 inline-block rounded-sm bg-amber-100 px-1 py-0.5 font-mono text-xs text-amber-800">
                             /bind-alert {a.bindCode}
@@ -180,31 +184,31 @@ export function AlertsView({
                   </TableCell>
                   <TableCell>
                     {a.enabled ? (
-                      <Badge variant={a.lastError ? 'destructive' : a.targetChatId ? 'default' : 'secondary'} className={a.lastError || !a.targetChatId ? undefined : 'bg-green-600'}>
+                      <StatusBadge tone={a.lastError ? 'error' : a.targetChatId ? 'success' : 'warning'}>
                         {a.lastError ? '轮询异常' : a.targetChatId ? '已启用' : '等待绑定'}
-                      </Badge>
+                      </StatusBadge>
                     ) : (
-                      <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                      <StatusBadge tone="warning">
                         已暂停
-                      </Badge>
+                      </StatusBadge>
                     )}
                     <div className="mt-1 text-xs text-muted-foreground">{time(a.lastSuccessAt)}</div>
                     {a.lastError && <div className="mt-1 max-w-64 break-words text-xs text-destructive">{a.lastError}</div>}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex items-center gap-1">                      <Button variant="outline" size="sm" onClick={() => onEdit(a.id)}>
+                        编辑
+                      </Button>                      <Button variant="outline" size="sm" disabled={!a.targetChatId} onClick={() => poll(a.id)}>
+                        立即轮询
+                      </Button><RowActions label={a.name}>
                       <Button variant="outline" size="sm" onClick={() => setEnabled(a.id, !a.enabled)}>
                         {a.enabled ? '暂停' : '启用'}
                       </Button>
-                      <Button variant="outline" size="sm" disabled={!a.targetChatId} onClick={() => poll(a.id)}>
-                        立即轮询
-                      </Button>
+
                       <Button variant="outline" size="sm" disabled={!a.targetChatId} onClick={() => testPush(a.id)}>
                         测试推送
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => onEdit(a.id)}>
-                        编辑
-                      </Button>
+
                       {a.targetChatId && (
                         <ConfirmButton
                           trigger={
@@ -226,7 +230,7 @@ export function AlertsView({
                         title="确认删除该告警配置及执行历史？"
                         onConfirm={() => remove(a.id)}
                       />
-                    </div>
+                    </RowActions></div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -235,14 +239,13 @@ export function AlertsView({
         )}
       </PanelCard>
 
-      <PanelCard title="最近执行" hint="展示最近 50 条告警的发现、诊断和主动推送状态。">
+      <PanelCard title="最近执行" hint="追踪最近 50 条告警，从发现、诊断到推送的完整进展。"
+        toolbar={state && state.alertJobs.length > 0 && <ListToolbar query={jobQuery} onQueryChange={setJobQuery} placeholder="搜索告警对象、配置或错误" count={jobs.length} total={state.alertJobs.length}><FilterPills value={jobFilter} onChange={setJobFilter} options={[{value:'all',label:'全部'}, {value:'pending',label:'处理中'}, {value:'delivered',label:'已推送'}, {value:'failed',label:'失败'}]} /></ListToolbar>}>
         {!state ? (
           <TableSkeleton rows={3} />
         ) : state.alertJobs.length === 0 ? (
-          <div className="border-t py-8 text-center text-sm text-muted-foreground">
-            暂无告警执行记录。
-          </div>
-        ) : (
+          <EmptyState icon={History} title="暂无执行记录" description="告警配置启用并绑定群聊后，新的诊断与推送记录会出现在这里。" />
+        ) : !jobs.length ? <NoResults onReset={() => { setJobQuery(''); setJobFilter('all') }} /> : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -255,7 +258,7 @@ export function AlertsView({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {state.alertJobs.map((j) => (
+              {jobs.map((j) => (
                 <TableRow key={j.id}>
                   <TableCell>{time(j.createdAt)}</TableCell>
                   <TableCell>{j.integrationName}</TableCell>

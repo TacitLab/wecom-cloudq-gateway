@@ -3,13 +3,13 @@ import { DutySwitch } from '@/components/forms/architecture-duty-form'
 import { Button } from '@/components/ui/button'
 import type { ArchitectureDetail } from '@/lib/types'
 
-const COLORS = ['#0284c7', '#14b8a6', '#8b5cf6', '#f59e0b', '#ec4899', '#64748b', '#06b6d4']
+const COLORS = ['#2456df', '#13a68d', '#8b5cf6', '#f59e0b', '#ec4899', '#64748b', '#06b6d4']
 export function ArchitectureOverview({ detail, busy, onEnabled, onSettings }: {
   detail: ArchitectureDetail
   busy: boolean; onEnabled: (enabled: boolean) => void; onSettings: () => void
 }) {
   const total = detail.resources.length
-  return <div className="grid gap-3 xl:grid-cols-[1.05fr_1.3fr_.75fr]">
+  return <div className="architecture-overview grid gap-4 xl:grid-cols-[1.05fr_1.3fr_.75fr]">
     <section aria-label="资源分布概览" className="flex flex-col rounded-xl border bg-card p-4">
       <div className="flex items-baseline justify-between"><h2 className="text-sm font-medium">资源分布</h2><span className="text-xs text-muted-foreground">{detail.products.length} 种云产品</span></div>
       <div className="mt-3 flex min-h-40 flex-1 items-center gap-4">
@@ -32,7 +32,7 @@ export function ArchitectureOverview({ detail, busy, onEnabled, onSettings }: {
       <div className="mb-3 flex items-baseline justify-between"><h2 className="text-sm font-medium">地域分布</h2><span className="text-xs text-muted-foreground">覆盖 <strong className="text-base text-foreground">{detail.regions.filter(r => r.id !== 'unknown').length}</strong> 个地域</span></div>
       <ArchitectureRegionMap compact regions={detail.regions} />
     </section>
-    <section aria-label="值守控制" className="flex flex-col rounded-xl border bg-card p-4">
+    <section aria-label="值守控制" className="duty-control flex flex-col rounded-xl border bg-card p-4">
       <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-medium">架构值守</h2><DutySwitch label="快捷启用架构值守" checked={detail.settings.enabled} disabled={busy} onChange={onEnabled} /></div>
       <p className="mt-4 text-xl font-semibold">{detail.settings.enabled ? detail.settings.targetChatId ? '已启用' : '等待群绑定' : '未启用'}</p>
       <p className="mt-2 text-xs text-muted-foreground">{detail.settings.schedule.allDay ? '全天值守' : `${detail.settings.schedule.start} — ${detail.settings.schedule.end}`} · 每 {detail.settings.pollIntervalSeconds} 秒检查</p>

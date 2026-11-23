@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const canvas = document.getElementById('canvas');
-  let source = '', root = null, selected = '', allowed = new Set();
+  let source = '', root = null, selected = '', allowed = new Set(), preview = false;
   let nativeBox = [0, 0, 1000, 700], camera = null, fitBox = null, drag = null, skipClick = false;
   function viewport() {
     const rect = canvas.getBoundingClientRect();
@@ -10,7 +10,7 @@
   }
   function fittedBox() {
     const { width, height } = viewport(), [x, y, w, h] = nativeBox;
-    const scale = Math.min(Math.max(1, width - 48) / w, Math.max(1, height - 100) / h);
+    const scale = Math.min(Math.max(1, width - (preview ? 32 : 48)) / w, Math.max(1, height - (preview ? 48 : 100)) / h);
     return { x: x + w / 2 - width / scale / 2, y: y + h / 2 - height / scale / 2, w: width / scale, h: height / scale };
   }
   function paintCamera() {
@@ -40,6 +40,7 @@
   }
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => {
     if (!camera || !fitBox) return;
+    if (preview) { fit(); return; }
     const zoom = fitBox.w / camera.w, cx = camera.x + camera.w / 2, cy = camera.y + camera.h / 2;
     fitBox = fittedBox();
     camera = { x: cx - fitBox.w / zoom / 2, y: cy - fitBox.h / zoom / 2, w: fitBox.w / zoom, h: fitBox.h / zoom };
@@ -60,6 +61,7 @@
     }
   }
   function choose(id) {
+    if (preview) return;
     if (id && !allowed.has(id)) return;
     highlight(id);
     window.parent.postMessage({ type: 'architecture-node-selected', nodeId: id }, '*');
@@ -68,6 +70,7 @@
     if (event.source !== window.parent) return;
     const data = event.data;
     if (data?.type === 'architecture-diagram-command') {
+      if (preview) return;
       if (data.command === 'fit') fit();
       if (data.command === 'zoom-in') zoomBy(1.25);
       if (data.command === 'zoom-out') zoomBy(.8);
@@ -75,10 +78,15 @@
     }
     if (data?.type !== 'architecture-diagram-render') return;
     if (typeof data.svg !== 'string' || data.svg.length > 10 * 1024 * 1024 || !Array.isArray(data.nodes)) return;
-    const nodes = data.nodes.filter(node => typeof node.id === 'string' && typeof node.name === 'string');
+    const modeChanged = preview !== (data.preview === true);
+    preview = data.preview === true;
+    canvas.classList.toggle('preview', preview);
+    if (preview) { canvas.removeAttribute('tabindex'); canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', '业务架构缩略图'); }
+    else { canvas.setAttribute('tabindex', '0'); canvas.setAttribute('role', 'application'); canvas.setAttribute('aria-label', '智能顾问原始架构图，拖动平移，滚轮缩放，按 0 适应画布'); }
+    const nodes = preview ? [] : data.nodes.filter(node => typeof node.id === 'string' && typeof node.name === 'string');
     allowed = new Set(nodes.map(node => node.id));
     try {
-      if (source !== data.svg) {
+      if (source !== data.svg || modeChanged) {
         const parsed = new DOMParser().parseFromString(data.svg, 'image/svg+xml');
         if (parsed.querySelector('parsererror') || parsed.documentElement.localName !== 'svg') throw new Error('Invalid SVG');
         root = document.importNode(parsed.documentElement, true);
@@ -113,7 +121,7 @@
     choose(node?.dataset.gatewayNode || '');
   });
   canvas.addEventListener('pointerdown', event => {
-    if (!root || event.button !== 0 || drag) return;
+    if (preview || !root || event.button !== 0 || drag) return;
     skipClick = false;
     drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY,
       moved: false, nodeId: event.target.closest('[data-gateway-node]')?.dataset.gatewayNode || '' };
@@ -138,12 +146,13 @@
   canvas.addEventListener('lostpointercapture', cancelDrag);
   canvas.addEventListener('dragstart', event => event.preventDefault());
   canvas.addEventListener('wheel', event => {
-    if (!root) return;
+    if (preview || !root) return;
     event.preventDefault();
     const rect = canvas.getBoundingClientRect(), delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport().height : 1);
     zoomBy(Math.exp(-Math.max(-200, Math.min(200, delta)) * .003), event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
   canvas.addEventListener('keydown', event => {
+    if (preview) return;
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
       event.preventDefault(); const step = event.shiftKey ? 160 : 40;
       panBy(event.key === 'ArrowLeft' ? step : event.key === 'ArrowRight' ? -step : 0, event.key === 'ArrowUp' ? step : event.key === 'ArrowDown' ? -step : 0);

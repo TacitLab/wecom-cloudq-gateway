@@ -25,7 +25,7 @@ export function AgentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>连接 Agent</DialogTitle>
+          <DialogTitle>{record ? '编辑 Agent' : '连接 Agent'}</DialogTitle>
           <DialogDescription>
             选择 WMA 凭证，从拉取的 WMA Agent 列表中选择要绑定的 Agent。
           </DialogDescription>

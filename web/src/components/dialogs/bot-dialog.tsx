@@ -31,7 +31,7 @@ export function BotDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>企业微信 Bot 配对</DialogTitle>
+          <DialogTitle>{record ? '编辑 Bot 配对' : '新增 Bot 配对'}</DialogTitle>
         </DialogHeader>
         {open && record && (
           <BotForm

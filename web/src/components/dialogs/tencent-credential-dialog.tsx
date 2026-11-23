@@ -23,7 +23,7 @@ export function TencentCredentialDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>腾讯云凭证</DialogTitle>
+          <DialogTitle>{record ? '编辑腾讯云凭证' : '新增腾讯云凭证'}</DialogTitle>
           <DialogDescription>
             在腾讯云控制台（访问管理 → API 密钥管理）获取 SecretId / SecretKey，用于 Agent 运行时云认证及告警 RCA。
           </DialogDescription>

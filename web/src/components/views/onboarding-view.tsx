@@ -1,185 +1,42 @@
-import { ArrowRight, Check, PartyPopper } from 'lucide-react'
+import { ArrowRight, Check, KeyRound, Bot, MessagesSquare, CheckCircle2 } from 'lucide-react'
 import { useState } from 'react'
-
 import { AgentForm } from '@/components/forms/agent-form'
 import { BotForm } from '@/components/forms/bot-form'
 import { WmaCredentialForm } from '@/components/forms/wma-credential-form'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import type { AdminState } from '@/lib/types'
 
 const STEPS = [
-  {
-    key: 'wma-credential' as const,
-    title: '添加 WMA 凭证',
-    description: '录入具备 WMA 权限的腾讯云 SecretId / SecretKey。',
-    done: (s: AdminState) => s.wmaCredentials.length > 0,
-  },
-  {
-    key: 'agent' as const,
-    title: '连接 WMA Agent',
-    description: '选择上一步保存的 WMA 凭证，从拉取的 WMA Agent 列表中选择要绑定的 Agent。',
-    done: (s: AdminState) => s.agents.length > 0,
-  },
-  {
-    key: 'bot' as const,
-    title: '创建 Bot 配对',
-    description: '填入企业微信 Bot 的 ID 与 Secret 并绑定 WMA Agent，保存后长连接自动建立。',
-    done: (s: AdminState) => s.bots.length > 0,
-  },
+  { key: 'wma-credential', title: '添加 WMA 凭证', description: '录入具备 WMA 权限的腾讯云 SecretId / SecretKey。', icon: KeyRound, done: (s: AdminState) => s.wmaCredentials.length > 0 },
+  { key: 'agent', title: '连接 WMA Agent', description: '选择保存的 WMA 凭证，获取并连接团队需要的智能体。', icon: Bot, done: (s: AdminState) => s.agents.length > 0 },
+  { key: 'bot', title: '创建 Bot 配对', description: '填入企业微信 Bot 的 ID 与 Secret 并绑定 Agent，保存后将自动建立连接。', icon: MessagesSquare, done: (s: AdminState) => s.bots.length > 0 },
 ]
 
-export function OnboardingPage({
-  state,
-  onSaved,
-  onExit,
-}: {
-  state: AdminState
-  onSaved: () => Promise<void>
-  onExit: () => void
-}) {
-  const doneFlags = STEPS.map((s) => s.done(state))
+export function OnboardingPage({ state, onSaved, onExit }: { state: AdminState; onSaved: () => Promise<void>; onExit: () => void }) {
+  const doneFlags = STEPS.map(s => s.done(state))
   const allDone = doneFlags.every(Boolean)
-  // 当前步骤由用户导航决定；初始为第一个未完成步骤
-  const [stepIndex, setStepIndex] = useState(() => {
-    const first = doneFlags.findIndex((d) => !d)
-    return first === -1 ? 0 : first
-  })
-
-  async function handleSaved() {
-    await onSaved()
-    setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
-  }
-
-  function skip() {
-    if (stepIndex === STEPS.length - 1) onExit()
-    else setStepIndex(stepIndex + 1)
-  }
-
-  return (
-    <div className="min-h-svh bg-muted/40">
-      <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col px-6 py-10">
-        <div className="mb-8 flex items-center gap-3">
-          <img
-            src={`${import.meta.env.BASE_URL}favicon.svg?v=cloudq-b1-1`}
-            alt=""
-            aria-hidden="true"
-            width={36}
-            height={36}
-            className="size-9 shrink-0"
-          />
-          <div>
-            <div className="font-semibold leading-tight">CloudQ Gateway</div>
-            <div className="text-xs text-muted-foreground">首次配置向导</div>
-          </div>
-        </div>
-
-        {allDone ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border bg-card py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <PartyPopper className="size-6" />
-            </div>
-            <h1 className="text-xl font-semibold">配置完成</h1>
-            <p className="max-w-md text-sm text-muted-foreground">
-              WMA 凭证、WMA Agent 和 Bot 配对都已就绪。Bot 长连接正在运行，现在可以去企业微信群里和它对话了。
-            </p>
-            <Button onClick={onExit}>
-              进入控制台
-              <ArrowRight />
-            </Button>
-          </div>
-        ) : (
-          <>
-            <h1 className="text-2xl font-semibold tracking-tight">快速开始</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              按顺序完成以下 {STEPS.length} 步，即可让企业微信 Bot 接入 WMA Agent。
-            </p>
-
-            {/* 步骤进度条 */}
-            <ol className="my-8 flex items-center">
-              {STEPS.map((step, index) => {
-                const done = doneFlags[index]
-                const active = index === stepIndex
-                return (
-                  <li key={step.key} className={cn('flex items-center', index > 0 && 'flex-1')}>
-                    {index > 0 && (
-                      <div
-                        className={cn(
-                          'mx-3 h-px flex-1',
-                          doneFlags[index - 1] ? 'bg-primary' : 'bg-border',
-                        )}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setStepIndex(index)}
-                      className="flex items-center gap-2.5 rounded-md text-left"
-                    >
-                      <span
-                        className={cn(
-                          'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
-                          done
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : active
-                              ? 'border-primary text-primary'
-                              : 'text-muted-foreground',
-                        )}
-                      >
-                        {done ? <Check className="size-4" /> : index + 1}
-                      </span>
-                      <span
-                        className={cn(
-                          'text-sm whitespace-nowrap',
-                          active ? 'font-semibold' : done ? 'font-medium' : 'text-muted-foreground',
-                        )}
-                      >
-                        {step.title}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
-
-            {/* 当前步骤表单 */}
-            <div className="rounded-xl border bg-card p-6">
-              <h2 className="font-semibold">
-                第 {stepIndex + 1} 步 · {STEPS[stepIndex].title}
-              </h2>
-              <p className="mt-1 mb-5 text-sm text-muted-foreground">
-                {STEPS[stepIndex].description}
-              </p>
-              {STEPS[stepIndex].key === 'wma-credential' && (
-                <WmaCredentialForm formId="wizard-step-form" hideFooter onSaved={handleSaved} />
-              )}
-              {STEPS[stepIndex].key === 'agent' && (
-                <AgentForm formId="wizard-step-form" hideFooter state={state} onSaved={handleSaved} />
-              )}
-              {STEPS[stepIndex].key === 'bot' && (
-                <BotForm formId="wizard-step-form" hideFooter state={state} onSaved={handleSaved} />
-              )}
-              <div className="mt-6 flex items-center justify-between border-t pt-4">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={stepIndex === 0}
-                  onClick={() => setStepIndex(stepIndex - 1)}
-                >
-                  上一步
-                </Button>
-                <div className="flex gap-2">
-                  <Button type="button" variant="ghost" onClick={skip}>
-                    {stepIndex === STEPS.length - 1 ? '跳过并进入控制台' : '跳过'}
-                  </Button>
-                  <Button type="submit" form="wizard-step-form">
-                    {stepIndex === STEPS.length - 1 ? '完成' : '下一步'}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
+  const [stepIndex, setStepIndex] = useState(() => Math.max(0, doneFlags.findIndex(d => !d)))
+  async function handleSaved() { await onSaved(); setStepIndex(i => Math.min(i + 1, STEPS.length - 1)) }
+  function skip() { if (stepIndex === STEPS.length - 1) onExit(); else setStepIndex(stepIndex + 1) }
+  return <div className="onboarding-shell">
+    <aside className="onboarding-aside">
+      <img src={`${import.meta.env.BASE_URL}brand/logo-lockup-inverse.svg`} alt="CloudQ Gateway" className="w-56 max-w-full" />
+      <div className="my-10 lg:my-16"><p className="text-[10px] tracking-[.2em] text-[#6de2cf]">WELCOME ABOARD</p><h1 className="mt-4 text-3xl font-semibold leading-snug tracking-tight">让智能运维，<br />走进团队的日常。</h1><p className="mt-5 max-w-xs text-sm leading-7 text-slate-400">连接云端智能体与企业微信，<br />从一次配置，开启持续协作。</p></div>
+      <ol className="grid gap-3" aria-label="配置进度">
+        {STEPS.map((step, index) => <li key={step.key}><button type="button" className="onboarding-step" aria-current={!allDone && index === stepIndex ? 'step' : undefined} onClick={() => setStepIndex(index)}><span className={`onboarding-step-number ${doneFlags[index] ? 'is-complete' : ''}`}>{doneFlags[index] ? <Check className="size-4" /> : `0${index + 1}`}</span><span className="flex-1 text-left text-sm">{step.title}</span><span className="text-[10px] opacity-60">{doneFlags[index] ? '已完成' : index === stepIndex ? '当前步骤' : '待配置'}</span></button></li>)}
+      </ol>
+      <p className="mt-auto pt-10 text-xs text-slate-500">凭证 → 智能体 → 团队协作</p>
+    </aside>
+    <main className="onboarding-main">
+      <div className="mb-10 flex items-center justify-between gap-4"><span className="text-xs text-muted-foreground">首次配置向导 · {doneFlags.filter(Boolean).length} / 3 已完成</span><Button variant="ghost" size="sm" onClick={onExit}>稍后配置<ArrowRight /></Button></div>
+      {allDone ? <div className="onboarding-form flex flex-col items-center gap-5 py-16 text-center"><div className="grid size-16 place-items-center rounded-2xl bg-emerald-50 text-emerald-600"><CheckCircle2 className="size-8" /></div><h2 className="text-2xl font-semibold">准备就绪</h2><p className="max-w-sm text-sm leading-7 text-muted-foreground">凭证、Agent 和 Bot 配对已保存。进入控制台查看连接状态，确认在线后即可在企业微信中开始对话。</p><Button onClick={onExit}>进入控制台<ArrowRight /></Button></div>
+        : <div className="onboarding-form"><div className="mb-7 border-b pb-6"><span className="page-eyebrow">STEP 0{stepIndex + 1} / 03</span><h2 className="mt-2 text-2xl font-semibold tracking-tight">{STEPS[stepIndex].title}</h2><p className="mt-3 text-sm leading-6 text-muted-foreground">{STEPS[stepIndex].description}</p></div>
+          {STEPS[stepIndex].key === 'wma-credential' && <WmaCredentialForm formId="wizard-step-form" hideFooter onSaved={handleSaved} />}
+          {STEPS[stepIndex].key === 'agent' && <AgentForm formId="wizard-step-form" hideFooter state={state} onSaved={handleSaved} />}
+          {STEPS[stepIndex].key === 'bot' && <BotForm formId="wizard-step-form" hideFooter state={state} onSaved={handleSaved} />}
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-5"><Button type="button" variant="ghost" disabled={stepIndex === 0} onClick={() => setStepIndex(stepIndex - 1)}>上一步</Button><div className="flex gap-2"><Button type="button" variant="ghost" onClick={skip}>{stepIndex === STEPS.length - 1 ? '跳过并进入控制台' : '跳过'}</Button><Button type="submit" form="wizard-step-form">{stepIndex === STEPS.length - 1 ? '完成配置' : '保存并继续'}<ArrowRight /></Button></div></div>
+        </div>}
+      <p className="mt-6 text-center text-xs text-muted-foreground">所有配置都可以在控制台中继续管理与调整。</p>
+    </main>
+  </div>
 }

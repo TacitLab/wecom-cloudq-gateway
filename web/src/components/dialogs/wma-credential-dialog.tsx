@@ -23,7 +23,7 @@ export function WmaCredentialDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>WMA 凭证设置</DialogTitle>
+          <DialogTitle>{record ? '编辑 WMA 凭证' : '新增 WMA 凭证'}</DialogTitle>
           <DialogDescription>
             录入具有 WMA 访问权限的腾讯云 SecretId / SecretKey，用于拉取 Agent 列表和执行对话。
           </DialogDescription>

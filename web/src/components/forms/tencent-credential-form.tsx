@@ -67,7 +67,8 @@ export function TencentCredentialForm({
           id="tc-secret-id"
           type="password"
           autoComplete="new-password"
-          placeholder="编辑时留空表示不修改"
+          required={!record}
+          placeholder={record ? '留空保留原 SecretId' : '腾讯云 SecretId，AKID 开头'}
           value={secretId}
           onChange={(e) => setSecretId(e.target.value)}
         />
@@ -78,7 +79,8 @@ export function TencentCredentialForm({
           id="tc-secret-key"
           type="password"
           autoComplete="new-password"
-          placeholder="编辑时留空表示不修改"
+          required={!record}
+          placeholder={record ? '留空保留原 SecretKey' : '腾讯云 SecretKey'}
           value={secretKey}
           onChange={(e) => setSecretKey(e.target.value)}
         />

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Toaster, toast } from 'sonner'
+import { AlertCircle } from 'lucide-react'
 
 import { AppSidebar } from '@/components/app-sidebar'
 import { SiteHeader } from '@/components/site-header'
-import { StatCards } from '@/components/stat-cards'
+import { OverviewView } from '@/components/views/overview-view'
+import { QuickNavigation } from '@/components/quick-navigation'
 import { Button } from '@/components/ui/button'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AgentsView } from '@/components/views/agents-view'
@@ -19,25 +21,41 @@ import { BotDialog } from '@/components/dialogs/bot-dialog'
 import { WmaCredentialDialog } from '@/components/dialogs/wma-credential-dialog'
 import { TencentCredentialDialog } from '@/components/dialogs/tencent-credential-dialog'
 import { useAdminState } from '@/lib/use-admin-state'
-import { isEmptyState, parseView, parseWatchId, type ViewKey } from '@/lib/views'
+import { VIEW_META, isEmptyState, parseView, parseWatchId, type ViewKey } from '@/lib/views'
 import { OnboardingPage } from '@/components/views/onboarding-view'
 
 type DialogKind = 'agent' | 'wma-credential' | 'tencent' | 'bot' | 'alert'
 
 export default function App() {
-  const [view, setView] = useState<ViewKey>(() => parseView(location.hash) ?? 'pairings')
+  const [view, setView] = useState<ViewKey>(() => parseView(location.hash) ?? 'overview')
   const [watchId, setWatchId] = useState<string | null>(() => parseWatchId(location.hash))
   const [dialog, setDialog] = useState<{ kind: DialogKind; id?: string } | null>(null)
-  const { state, error, reload } = useAdminState()
+  const { state, error, reload, refreshing, updatedAt } = useAdminState()
+  const [searchOpen, setSearchOpen] = useState(false)
   // 首次加载到空配置时进入独立向导页；一旦进入则保持到全部完成
   const [wizard, setWizard] = useState(false)
   const wizardDecided = useRef(false)
 
   useEffect(() => {
-    const onHash = () => { setView(parseView(location.hash) ?? 'pairings'); setWatchId(parseWatchId(location.hash)) }
+    const onHash = () => { setView(parseView(location.hash) ?? 'overview'); setWatchId(parseWatchId(location.hash)) }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault(); setSearchOpen(open => !open)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    document.title = `${VIEW_META[view].title} · CloudQ Gateway`
+    window.scrollTo({ top: 0 })
+  }, [view, watchId])
 
   useEffect(() => {
     if (state && !wizardDecided.current) {
@@ -58,7 +76,7 @@ export default function App() {
   function switchView(next: ViewKey) {
     setView(next)
     setWatchId(null)
-    if (location.hash !== `#${next}`) history.replaceState(null, '', `#${next}`)
+    if (location.hash !== `#${next}`) location.hash = next
   }
 
   function openDialog(kind: DialogKind, id?: string) {
@@ -71,32 +89,36 @@ export default function App() {
     setDialog({ kind, id })
   }
 
-  const onlineCount = state
-    ? Object.values(state.connections).filter((c) => c.status === 'authenticated').length
-    : 0
+  const meta = VIEW_META[view]
 
   return (
     <SidebarProvider>
-      <AppSidebar view={view} onSwitch={switchView} />
-      <SidebarInset>
-        <SiteHeader view={view} onlineCount={onlineCount} />
-        <div className="flex flex-1 flex-col gap-4 py-4 md:gap-6 md:py-6">
-          {view === 'pairings' && <StatCards state={state} />}
-          <div className="px-4 lg:px-6">
+      <a href="#main-content" onClick={e => { e.preventDefault(); document.getElementById('main-content')?.focus() }} className="skip-link">跳到主要内容</a>
+      <AppSidebar view={view} onSwitch={switchView} onSearch={() => setSearchOpen(true)} state={state} />
+      <SidebarInset className="workspace-inset">
+        <SiteHeader view={view} refreshing={refreshing} updatedAt={updatedAt} error={error} onRefresh={() => void reload()} onSearch={() => setSearchOpen(true)} detail={!!watchId} />
+        <div id="main-content" tabIndex={-1} className="workspace-content outline-none">
+          {!watchId && <div className="page-heading">
+            <p className="page-eyebrow">{meta.eyebrow}</p>
+            <h1>{meta.title}</h1><p className="page-description">{meta.description}</p>
+          </div>}
+          {error && state && <div role="alert" className="sync-warning"><AlertCircle className="size-4 shrink-0" /><span>暂时无法同步，当前显示上次成功获取的数据。{error}</span><Button variant="outline" size="sm" disabled={refreshing} onClick={() => void reload()}>重试</Button></div>}
+          <div className="min-w-0">
             {error && !state ? (
-              <div className="rounded-lg border bg-card py-10 text-center text-sm text-muted-foreground">
-                数据加载失败：{error}
-                <Button variant="outline" size="sm" className="ml-3" onClick={() => reload()}>
+              <div role="alert" className="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground">
+                <AlertCircle className="mx-auto mb-4 size-7 text-destructive" /><p className="mb-2 text-base font-semibold text-foreground">暂时无法加载工作区</p><p className="mb-5">{error}</p>
+                <Button variant="outline" size="sm" disabled={refreshing} onClick={() => reload()}>
                   重试
                 </Button>
               </div>
             ) : (
               <>
+                {view === 'overview' && <OverviewView state={state} onSwitch={switchView} />}
                 {view === 'pairings' && (
-                  <PairingsView state={state} reload={reload} onEdit={(id) => openDialog('bot', id)} />
+                  <PairingsView state={state} reload={reload} onEdit={(id) => openDialog('bot', id)} onSetupAgent={() => switchView('agents')} />
                 )}
                 {view === 'agents' && (
-                  <AgentsView state={state} reload={reload} onEdit={(id) => openDialog('agent', id)} />
+                  <AgentsView state={state} reload={reload} onEdit={(id) => openDialog('agent', id)} onSetupCredential={() => switchView('wma-credentials')} />
                 )}
                 {view === 'wma-credentials' && (
                   <WmaCredentialsView state={state} reload={reload} onEdit={(id) => openDialog('wma-credential', id)} />
@@ -126,8 +148,10 @@ export default function App() {
               </>
             )}
           </div>
+          <footer className="workspace-footer"><span>CloudQ Gateway</span><span>连接 · 洞察 · 行动</span></footer>
         </div>
       </SidebarInset>
+      <QuickNavigation open={searchOpen} onOpenChange={setSearchOpen} onSwitch={switchView} />
 
       <BotDialog
         open={dialog?.kind === 'bot'}

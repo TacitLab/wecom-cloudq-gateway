@@ -1,35 +1,46 @@
-export type ViewKey = 'pairings' | 'agents' | 'wma-credentials' | 'tencent-credentials' | 'alerts' | 'architecture-watches'
+export type ViewKey = 'overview' | 'pairings' | 'agents' | 'wma-credentials' | 'tencent-credentials' | 'alerts' | 'architecture-watches'
 
-export const VIEW_META: Record<ViewKey, { title: string; description: string }> = {
+export const VIEW_META: Record<ViewKey, { title: string; description: string; group: string; eyebrow: string }> = {
+  overview: {
+    group: '运维工作台', eyebrow: 'WORKSPACE OVERVIEW',
+    title: '工作区概览',
+    description: '一眼掌握连接与值守状态，从这里开始今天的运维工作。',
+  },
   'architecture-watches': {
+    group: '运维工作台', eyebrow: 'ARCHITECTURE WATCH',
     title: '架构值守',
-    description: '从腾讯云智能顾问选择架构图，管理待值守的业务架构',
+    description: '让业务架构持续可见，让资源异常及时被发现。',
   },
   pairings: {
+    group: '连接与智能体', eyebrow: 'BOT CONNECTIONS',
     title: '企业微信 Bot 配对',
-    description: '管理企业微信 Bot 与 WMA Agent 的唯一绑定关系',
+    description: '连接团队与智能体，让每一条运维消息都有回应。',
   },
   agents: {
+    group: '连接与智能体', eyebrow: 'AGENT WORKSPACE',
     title: 'WMA Agent',
-    description: '维护可被企业微信 Bot 绑定的企业智能体配置',
+    description: '集中管理智能体、运行版本与凭证，为团队提供可靠的运维能力。',
   },
   'wma-credentials': {
+    group: '凭证与访问', eyebrow: 'WMA CREDENTIALS',
     title: 'WMA 凭证设置',
-    description: '维护用于拉取和调用 WMA 智能体的腾讯云 AK/SK 凭证',
+    description: '管理智能体接入凭证，用于发现和调用 WMA Agent。',
   },
   'tencent-credentials': {
+    group: '凭证与访问', eyebrow: 'CLOUD CREDENTIALS',
     title: '腾讯云凭证',
-    description: '维护 Agent 运行时认证及告警 RCA 所需的腾讯云 SecretId / SecretKey',
+    description: '统一管理云资源访问，为架构值守、告警分析和 Agent 运行提供认证。',
   },
   alerts: {
+    group: '运维工作台', eyebrow: 'ALERT INTELLIGENCE',
     title: '告警 RCA',
-    description: '轮询可观测告警并主动推送 WMA Agent 根因分析',
+    description: '从告警发现到根因分析，将诊断结果直接送达团队。',
   },
 }
 
 export function parseView(hash: string): ViewKey | null {
   const key = hash.replace(/^#/, '').split('/')[0] as ViewKey
-  return key in VIEW_META ? key : null
+  return Object.hasOwn(VIEW_META, key) ? key : null
 }
 
 export function parseWatchId(hash: string): string | null {

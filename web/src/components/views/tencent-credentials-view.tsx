@@ -1,3 +1,7 @@
+import { matchesSearch } from '@/lib/list-filters'
+import { useState } from 'react'
+import { Plus, ShieldCheck } from 'lucide-react'
+import { EmptyState, ListToolbar, NoResults } from '@/components/list-toolbar'
 import { ConfirmButton } from '@/components/confirm-button'
 import { PanelCard } from '@/components/panel-card'
 import { TableSkeleton } from '@/components/table-skeleton'
@@ -23,6 +27,9 @@ export function TencentCredentialsView({
   reload: () => Promise<void>
   onEdit: (id?: string) => void
 }) {
+  const [query, setQuery] = useState('')
+  const items = (state?.tencentCredentials ?? []).filter(c => matchesSearch(query, c.name, c.secretIdMasked))
+
   async function testCredential(id: string) {
     try {
       await toastTask(
@@ -50,17 +57,16 @@ export function TencentCredentialsView({
 
   return (
     <PanelCard
-      title="腾讯云凭证"
+      title="云账号凭证"
       hint="保存腾讯云 SecretId / SecretKey，供 Agent 运行时云认证和告警 RCA 使用。"
-      action={<Button onClick={() => onEdit()}>新增凭证</Button>}
+      toolbar={state && state.tencentCredentials.length > 0 && <ListToolbar query={query} onQueryChange={setQuery} placeholder="搜索凭证名称或 SecretId" count={items.length} total={state.tencentCredentials.length} />}
+      action={(!state || state.tencentCredentials.length > 0) && <Button disabled={!state} onClick={() => onEdit()}><Plus />新增凭证</Button>}
     >
       {!state ? (
         <TableSkeleton rows={3} />
       ) : state.tencentCredentials.length === 0 ? (
-        <div className="border-t py-8 text-center text-sm text-muted-foreground">
-          尚未配置腾讯云凭证。
-        </div>
-      ) : (
+        <EmptyState icon={ShieldCheck} title="添加你的第一个云凭证" description="保存腾讯云 AK/SK，为架构值守、告警诊断与智能体运行提供云资源访问能力。" action={<Button onClick={() => onEdit()}><Plus />新增凭证</Button>} />
+      ) : items.length === 0 ? <NoResults onReset={() => { setQuery('');  }} /> : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -71,7 +77,7 @@ export function TencentCredentialsView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {state.tencentCredentials.map((c) => (
+            {items.map((c) => (
               <TableRow key={c.id}>
                 <TableCell className="font-medium">{c.name}</TableCell>
                 <TableCell>
@@ -84,7 +90,7 @@ export function TencentCredentialsView({
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => testCredential(c.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => testCredential(c.id)}>
                       测试
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => onEdit(c.id)}>
@@ -92,7 +98,7 @@ export function TencentCredentialsView({
                     </Button>
                     <ConfirmButton
                       trigger={
-                        <Button variant="outline" size="sm" className="text-destructive">
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
                           删除
                         </Button>
                       }

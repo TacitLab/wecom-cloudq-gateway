@@ -152,7 +152,7 @@ export function ArchitectureDutyForm({ detail, state, onSaved }: {
         </section>
         <ArchitectureApmField watchId={detail.watch.id} value={draft.apmApplications || []} onChange={apmApplications => setDraft(current => ({ ...current, apmApplications }))} />
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-xs text-muted-foreground">统一保存公共设置、云资源范围与 APM 应用关联，保存后生效。</p>
+        <div className="form-save-bar"><p className="text-xs text-muted-foreground">统一保存公共设置、云资源范围与 APM 应用关联，保存后生效。</p>
           <Button type="submit" disabled={saving}>{saving ? '保存中…' : '保存值守设置'}</Button></div>
       </fieldset>
       <Dialog open={editing !== null} onOpenChange={open => { if (!open) setEditing(null) }}>
