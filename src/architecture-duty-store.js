@@ -159,4 +159,30 @@ function retryEvent(watchId, eventId) {
   db().prepare("UPDATE architecture_watch_events SET attempts=0,next_attempt_at=0,error=NULL,analysis_status=CASE WHEN analysis_status='failed' THEN 'pending' ELSE analysis_status END WHERE id=?").run(eventId);
 }
 
-module.exports = { DEFAULTS, getSettings, saveSettings, setEnabled, bindChat, unbind, scheduleWindow, enqueue, history, eventFromRow, retryEvent };
+function saveAnalysis(eventId, analysis, attachments, attachmentError) {
+  const database = db();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.prepare("DELETE FROM architecture_event_attachments WHERE event_id=?").run(eventId);
+    const insert = database.prepare("INSERT INTO architecture_event_attachments(event_id,ordinal,filename,content) VALUES(?,?,?,?)");
+    attachments.forEach((item, index) => insert.run(eventId, index, item.filename, item.buffer));
+    database.prepare(`UPDATE architecture_watch_events SET analysis=?,analysis_attachment_error=?,analysis_status='ready',
+      analysis_messages_json=NULL,analysis_parts_sent=0,error=NULL WHERE id=?`).run(analysis, attachmentError, eventId);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function pendingAttachments(eventId) {
+  return db().prepare("SELECT ordinal,filename,content FROM architecture_event_attachments WHERE event_id=? AND sent_at IS NULL ORDER BY ordinal")
+    .all(eventId).map(row => ({ ordinal: row.ordinal, filename: row.filename, buffer: Buffer.from(row.content) }));
+}
+
+function markAttachmentSent(eventId, ordinal) {
+  db().prepare("UPDATE architecture_event_attachments SET sent_at=? WHERE event_id=? AND ordinal=?").run(Date.now(), eventId, ordinal);
+}
+
+module.exports = { DEFAULTS, getSettings, saveSettings, setEnabled, bindChat, unbind, scheduleWindow, enqueue, history, eventFromRow, retryEvent,
+  saveAnalysis, pendingAttachments, markAttachmentSent };

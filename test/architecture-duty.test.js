@@ -47,7 +47,7 @@ test("APM-only watches discover policies, isolate shared-policy events, deduplic
   await worker.deliverNotifications({ sendMessage: async (_, __, text) => { notice = text; } });
   assert.match(notice, /APM 应用.*checkout/); assert.match(notice, /生产业务/);
   let prompt = "";
-  await worker.processAnalyses({ adapter: { createConversation: async () => "apm-session", sendMessage: async (_, input, delta) => { prompt = input; delta("应用错误率异常"); return { stopReason: "end_turn" }; } }, sendMessage: async () => ({}) });
+  await worker.processAnalyses({ adapter: { createConversation: async () => "apm-session", sendMessage: async (_, input, delta) => { prompt = input; delta("应用错误率异常"); return htmlResult(); } }, sendMessage: async () => ({}), sendHtmlAttachment: async () => ({}) });
   assert.match(prompt, /apm-test/); assert.match(prompt, /checkout/); assert.match(prompt, /arch-duty/);
   const recovered = await poller.checkNow(f.id, { ...options, now: now + 60000,
     apmClientFor: () => apmClient([{ ...alarm, AlarmStatus: "OK", LastOccurTime: alarm.FirstOccurTime }]) });
@@ -115,6 +115,10 @@ function fixture(t, config = {}) {
   duty.bindChat(settings.bindCode, bot.id, "group-duty");
   db().prepare("UPDATE architecture_watch_settings SET updated_at=? WHERE watch_id=?").run(Date.now() - 3600000, "watch-duty");
   return { credential, agent, bot, detail, settings: duty.getSettings("watch-duty"), id: "watch-duty" };
+}
+
+function htmlResult() {
+  return { stopReason: "end_turn", attachments: [{ filename: "report.html", buffer: Buffer.from("<html>详细证据与建议</html>") }] };
 }
 
 function sampleClient(histories = []) {
@@ -316,9 +320,10 @@ test("first notice is delivered before RCA, and delivery retries reuse completed
   const adapter = { async createConversation() { order.push("analyze"); return {}; }, async sendMessage(_session, prompt, delta) {
     assert.match(prompt, /当前分析基于腾讯云智能顾问架构图「生产架构」/);
     assert.match(prompt, /架构图 ID：arch-duty/);
-    assert.match(prompt, /在分析结果开头明确声明架构图名称和 ID/);
+    assert.match(prompt, /简报不要重复架构图名称或 ID/);
+    assert.match(prompt, /完整 HTML 报告附件/);
     assert.match(prompt, /advisor\?archId=arch-duty/);
-    delta("结论：测试高负载"); return { stopReason: "end_turn" }; } };
+    delta("结论：测试高负载"); return htmlResult(); } };
   await worker.processAnalyses({ adapter, sendMessage: async () => assert.fail("notice must precede analysis") });
   assert.equal(order.length, 0);
   await worker.deliverNotifications({ sendMessage: async (_bot, group, text) => { assert.equal(group, "group-duty"); assert.match(text, /^### 生产架构 · 🔔 架构值守事件\n/); assert.match(text, /架构图：\*\* 生产架构/); assert.match(text, /架构图 ID：\*\* arch-duty/); order.push("notice"); } });
@@ -327,7 +332,8 @@ test("first notice is delivered before RCA, and delivery retries reuse completed
   const row = db().prepare("SELECT * FROM architecture_watch_events").get();
   assert.equal(row.analysis_status, "ready"); assert.equal(row.completed_at, null);
   db().prepare("UPDATE architecture_watch_events SET next_attempt_at=0").run();
-  await worker.processAnalyses({ adapter: { createConversation() { assert.fail("must not reanalyze") } }, sendMessage: async (_bot, _group, text) => { assert.match(text, /^### 生产架构 · RCA 分析\n/); assert.match(text, /架构图：\*\* 生产架构/); assert.match(text, /架构图 ID：\*\* arch-duty/); assert.match(text, /advisor\?archId=arch-duty/); order.push("result"); } });
+  await worker.processAnalyses({ adapter: { createConversation() { assert.fail("must not reanalyze") } }, sendMessage: async (_bot, _group, text) => { assert.match(text, /^### 生产架构 · RCA 分析\n/); assert.match(text, /架构图：\*\* 生产架构/); assert.match(text, /架构图 ID：\*\* arch-duty/); assert.match(text, /advisor\?archId=arch-duty/); order.push("result"); }, sendHtmlAttachment: async () => { order.push("report"); } });
+  assert.deepEqual(order, ["notice", "analyze", "result-failed", "result", "report"]);
   assert.equal(duty.history(f.id).items[0].analysisStatus, "completed");
   assert.equal(duty.history(f.id).items[0].analysis, "结论：测试高负载");
 });
@@ -491,11 +497,12 @@ test("node capacity inspection does not include another node sharing the same in
   assert.deepEqual(requested, ["selected"]);
 });
 
-test("each RCA chunk identifies its architecture and delivery retries resume the saved messages", async t => {
+test("legacy RCA chunks retain their architecture and delivery retries resume the saved messages", async t => {
   const f = fixture(t, { rcaEnabled: true }), answer = "证据与建议。".repeat(1200), sent = [];
   duty.enqueue(f.id, f.settings, { key: "long-rca", type: "alarm", title: "异常", resourceId: "ins-watched", product: "CVM", region: "ap-guangzhou", payload: {} });
   await worker.deliverNotifications({ sendMessage: async () => {} });
-  await worker.processAnalyses({ adapter: { async createConversation() { return {}; }, async sendMessage(_session, _prompt, delta) { delta(answer); return { stopReason: "end_turn" }; } },
+  db().prepare("UPDATE architecture_watch_events SET analysis_status='ready',analysis=?").run(answer);
+  await worker.processAnalyses({ adapter: { createConversation() { assert.fail("must reuse legacy analysis"); } },
     sendMessage: async (_bot, _group, text) => {
       if (sent.length === 1) throw new Error("第二条临时失败");
       sent.push(text);
@@ -656,11 +663,11 @@ test("architecture RCA inherits the WMA version environment and ignores legacy d
     assert.equal(this.config.wmaVersionId, "version-with-credentials");
     assert.doesNotMatch(prompt, /AKID_VERSION_RUNTIME|version-runtime-secret|cloud-secret-test|wma-secret-test|诊断运行时凭证/);
     assert.match(prompt, /架构图 ID：arch-duty/);
-    delta("结果：version-runtime-secret cloud-secret-test"); return { stopReason: "end_turn" };
+    delta("结果：version-runtime-secret cloud-secret-test"); return htmlResult();
   });
   const sent = [];
   await worker.deliverNotifications({ sendMessage: async (_bot, _group, text) => sent.push(text) });
-  await worker.processAnalyses({ sendMessage: async (_bot, _group, text) => sent.push(text) });
+  await worker.processAnalyses({ sendMessage: async (_bot, _group, text) => sent.push(text), sendHtmlAttachment: async () => ({}) });
   assert.equal(duty.history(f.id).items[0].analysisStatus, "completed");
   assert.equal(duty.history(f.id).items[0].analysis, "结果：[REDACTED] [REDACTED]");
   assert.doesNotMatch(JSON.stringify(sent), /version-runtime-secret|cloud-secret-test/);

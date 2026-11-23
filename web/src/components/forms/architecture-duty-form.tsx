@@ -80,7 +80,7 @@ export function ArchitectureDutyForm({ detail, state, onSaved }: {
             </Select>
             {!state?.bots.some(b => b.enabled && b.agentConfigId) && <p className="text-xs text-muted-foreground">请先配置已启用且绑定 Agent 的企业微信 Bot。</p>}
           </div>
-          <div className="flex items-center justify-between gap-3"><div><Label>开启 RCA 分析</Label><p className="mt-1 text-xs text-muted-foreground">先推送事件，再由所选 Bot 绑定的 Agent 分析并推送结论。恢复事件仅推送恢复通知。</p></div>
+          <div className="flex items-center justify-between gap-3"><div><Label>开启 RCA 分析</Label><p className="mt-1 text-xs text-muted-foreground">先推送事件，再由所选 Bot 绑定的 Agent 发送分析简报和 HTML 报告附件。恢复事件仅推送恢复通知。</p></div>
             <DutySwitch label="开启 RCA 分析" checked={draft.rcaEnabled} onChange={rcaEnabled => setDraft({ ...draft, rcaEnabled })} /></div>
           {draft.rcaEnabled && <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">RCA 运行环境与凭证说明</summary><p className="mt-2 leading-relaxed">RCA 使用所选 Bot 绑定 Agent 的使用版本和运行环境；云资源凭证请在 WMA Agent 的凭证注入版中配置。</p></details>}
           <div className="min-w-0 rounded-md bg-muted/40 p-3 text-sm">

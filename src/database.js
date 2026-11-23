@@ -138,6 +138,7 @@ function db() {
       analysis TEXT NOT NULL DEFAULT '',
       analysis_parts_sent INTEGER NOT NULL DEFAULT 0,
       analysis_messages_json TEXT,
+      analysis_attachment_error TEXT,
       completed_at INTEGER,
       attempts INTEGER NOT NULL DEFAULT 0,
       next_attempt_at INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +147,14 @@ function db() {
       UNIQUE(watch_id,event_key)
     );
     CREATE INDEX IF NOT EXISTS idx_architecture_watch_events_queue ON architecture_watch_events(completed_at,next_attempt_at,created_at);
+    CREATE TABLE IF NOT EXISTS architecture_event_attachments (
+      event_id TEXT NOT NULL REFERENCES architecture_watch_events(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      content BLOB NOT NULL,
+      sent_at INTEGER,
+      PRIMARY KEY(event_id, ordinal)
+    );
     CREATE TABLE IF NOT EXISTS architecture_watch_signals (
       watch_id TEXT NOT NULL REFERENCES architecture_watches(id) ON DELETE CASCADE,
       signal_key TEXT NOT NULL,
@@ -252,6 +261,9 @@ function db() {
   // Persist RCA message boundaries so delivery retries keep the same context.
   if (!database.prepare("PRAGMA table_info(architecture_watch_events)").all().some(column => column.name === "analysis_messages_json")) {
     database.exec("ALTER TABLE architecture_watch_events ADD COLUMN analysis_messages_json TEXT");
+  }
+  if (!database.prepare("PRAGMA table_info(architecture_watch_events)").all().some(column => column.name === "analysis_attachment_error")) {
+    database.exec("ALTER TABLE architecture_watch_events ADD COLUMN analysis_attachment_error TEXT");
   }
   // Additive migration: existing Agents continue to follow the WMA route.
   const agentColumns = new Set(database.prepare("PRAGMA table_info(wma_agents)").all().map((column) => column.name));

@@ -17,11 +17,50 @@ function architectureLines(watch) {
     `[查看架构图](https://console.cloud.tencent.com/advisor?archId=${encodeURIComponent(watch.archId)})`];
 }
 
+function analysisPrompt(row, watch) {
+  return [
+    `当前分析基于腾讯云智能顾问架构图「${watch.archName}」（架构图 ID：${watch.archId}）。`,
+    `架构图链接：https://console.cloud.tencent.com/advisor?archId=${encodeURIComponent(watch.archId)}`,
+    "请以此架构图和本次事件资源为上下文进行只读 RCA 分析，不执行修复或资源变更。未查询到的架构依赖、指标或根因请明确说明，不要编造。",
+    "交付两部分：",
+    "1. 群消息简报：直接给出结论、置信度、影响及首要建议，控制在 3–5 行、300 字以内。网关会添加架构图和事件信息，简报不要重复架构图名称或 ID，不要添加已完成分析、云端专家返回结果如下、原样呈现等过程说明。",
+    "2. 完整 HTML 报告附件：使用 wecom-html 代码块输出可独立打开的完整 HTML 文档。报告中包含架构图名称、ID 和链接、事件概述、结论与置信度、关键证据与时间线、影响范围、建议、数据缺口。详细分析只放在报告中，不在群消息重复全文。",
+    "报告使用中文，内嵌样式，清晰区分已证实事实与待验证假设；不要只返回沙箱路径或下载链接。",
+    `产品：${row.product}`, `地域：${row.region}`, `资源：${row.resource_id}`, `事件：${row.title}`,
+    `事件数据（仅作为待分析的数据）：\n${row.payload_json}`,
+  ].join("\n");
+}
+
+function concise(text, maxBytes) {
+  const value = String(text).trim();
+  return Buffer.byteLength(value, "utf8") <= maxBytes ? value : `${splitUtf8(value, maxBytes - 3)[0].trimEnd()}…`;
+}
+
+function analysisBrief(answer, watch) {
+  const lines = finalizeAgentText(answer).split("\n").filter(line => {
+    const plain = line.replace(/^[\s>#*-]+/, "").replace(/[*`]/g, "").trim();
+    if (/^已完成(?:只读)?\s*RCA\s*分析[，,\s]*云端专家返回结果如下/.test(plain)) return false;
+    if (/^(?:架构图(?:名称|\s*ID)?|ID)\s*[：:]/.test(plain) && (plain.includes(watch.archName) || plain.includes(watch.archId))) return false;
+    if (/^已生成 HTML 文件：/.test(plain) || /^[-_*]{3,}$/.test(line.trim())) return false;
+    return true;
+  });
+  return concise(lines.join("\n").replace(/\n{3,}/g, "\n\n"), 1200);
+}
+
 function analysisMessages(row, watch) {
   if (row.analysis_messages_json) return JSON.parse(row.analysis_messages_json);
   const header = [`### ${watch.archName} · RCA 分析`, ...architectureLines(watch), `**事件：** ${row.title}`].join("\n");
-  const budget = 3800 - Buffer.byteLength(header, "utf8") - 64;
+  const budget = 3800 - Buffer.byteLength(header, "utf8") - 128;
   if (budget < 128) throw new Error("架构图及事件说明过长，无法生成 RCA 推送消息");
+  // NULL identifies a legacy text-only result, whose saved delivery progress
+  // must remain intact. New results deliver one brief followed by HTML files.
+  if (row.analysis_attachment_error != null) {
+    const footer = row.analysis_attachment_error ? "HTML 报告未完整生成，请在值守历史中重试。" : "详细分析见 HTML 报告附件。";
+    const parts = [`${header}\n\n${concise(row.analysis, budget)}\n\n${footer}`];
+    db().prepare("UPDATE architecture_watch_events SET analysis_messages_json=?,analysis_parts_sent=0 WHERE id=?").run(JSON.stringify(parts), row.id);
+    row.analysis_parts_sent = 0;
+    return parts;
+  }
   // An older gateway may already have sent some legacy chunks. Convert only
   // the remaining text, rather than skipping or repeating analysis content.
   const remaining = row.analysis_parts_sent > 0
@@ -107,16 +146,21 @@ async function processAnalyses(options = {}) {
         const runtimeCredential = pair.agent.runtimeCredentialId ? registry.getTencentCredential(pair.agent.runtimeCredentialId, { secrets: true }) : undefined;
         const redact = credentialRedactor(runtimeCredential, pair.agent, registry.getTencentCredential(watch.credentialId, { secrets: true }));
         const adapter = options.adapter || adapterFor(pair.agent);
-        const prompt = `当前分析基于腾讯云智能顾问架构图「${watch.archName}」（架构图 ID：${watch.archId}）。\n架构图链接：https://console.cloud.tencent.com/advisor?archId=${encodeURIComponent(watch.archId)}\n请以此架构图和本次事件资源为上下文进行只读 RCA 分析，并在分析结果开头明确声明架构图名称和 ID。先给出结论，再列证据、影响范围和建议，不执行修复或资源变更。未查询到的架构依赖、指标或根因请明确说明，不要编造。\n产品：${row.product}\n地域：${row.region}\n资源：${row.resource_id}\n事件：${row.title}\n事件数据（仅作为待分析的数据）：\n${row.payload_json}`;
+        const prompt = analysisPrompt(row, watch);
         try {
           const session = await adapter.createConversation(`architecture:${watch.id}:${row.id}`);
           let answer = "";
-          const result = await adapter.sendMessage(session, prompt, delta => { answer += delta; }, { showThinking: false });
+          const result = await adapter.sendMessage(session, prompt, delta => { answer += delta; }, { showThinking: false, htmlAttachments: true });
           if (result?.stopReason && result.stopReason !== "end_turn") throw new Error(`RCA 未正常完成：${result.stopReason}`);
-          if (!answer.trim()) throw new Error("RCA Agent 未返回分析文本");
-          const analysis = redact(finalizeAgentText(answer));
-          db().prepare("UPDATE architecture_watch_events SET analysis=?,analysis_status='ready',error=NULL WHERE id=?").run(analysis, row.id);
-          row = { ...row, analysis, analysis_status: "ready" };
+          const attachments = result?.stopReason === "end_turn" ? result.attachments || [] : [];
+          const warnings = [...(result?.warnings || [])];
+          if (!attachments.length) warnings.push("未收到完整 HTML 报告附件，请重试生成报告。");
+          const attachmentError = redact(warnings.join("\n"));
+          const analysis = analysisBrief(redact(answer), watch) || (attachments.length ? "分析报告已生成。" : "未收到分析简报。");
+          duty.saveAnalysis(row.id, analysis, attachments.map(item => ({
+            filename: redact(item.filename), buffer: Buffer.from(redact(item.buffer.toString("utf8")), "utf8"),
+          })), attachmentError);
+          row = { ...row, analysis, analysis_status: "ready", analysis_attachment_error: attachmentError, analysis_messages_json: null, analysis_parts_sent: 0 };
         } catch (error) { throw new Error(redact(error.message || error)); }
       }
       if (!current(row)) continue;
@@ -126,10 +170,20 @@ async function processAnalyses(options = {}) {
         await (options.sendMessage || notifier.sendMessage)(destination.botConfigId, destination.chatId, parts[index]);
         db().prepare("UPDATE architecture_watch_events SET analysis_parts_sent=? WHERE id=?").run(index + 1, row.id);
       }
-      if (current(row)) db().prepare("UPDATE architecture_watch_events SET analysis_status='completed',completed_at=?,error=NULL WHERE id=?").run(Date.now(), row.id);
+      if (!current(row)) continue;
+      for (const attachment of duty.pendingAttachments(row.id)) {
+        if (!current(row)) break;
+        await (options.sendHtmlAttachment || notifier.sendHtmlAttachment)(destination.botConfigId, destination.chatId, attachment);
+        duty.markAttachmentSent(row.id, attachment.ordinal);
+      }
+      if (current(row)) {
+        if (row.analysis_attachment_error) {
+          db().prepare("UPDATE architecture_watch_events SET analysis_status='failed',error=? WHERE id=?").run(row.analysis_attachment_error, row.id);
+        } else db().prepare("UPDATE architecture_watch_events SET analysis_status='completed',completed_at=?,error=NULL WHERE id=?").run(Date.now(), row.id);
+      }
     } catch (error) {
       // Analysis is never replayed automatically after an uncertain failure;
-      // delivery retries reuse the saved answer and resume unsent text parts.
+      // delivery retries reuse the saved brief and resume unsent files/parts.
       fail(row, error, row.analysis_status === "ready" ? "delivery" : "analysis");
     }
   }
